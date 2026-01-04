@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(del \"C:\\\\temp\\\\ExoPlanets\\\\Exoplanet.Functions\\\\Properties\\\\launchSettings.json\")"
+    ]
+  }
+}
