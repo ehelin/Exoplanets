@@ -1,5 +1,7 @@
 ﻿using Exoplanet.DAL;
+using Exoplanet.Shared.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
+using Shared.Interfaces;
 
 namespace Exoplanet.Services;
 
@@ -16,6 +18,7 @@ public static class ServicesServiceCollectionExtensions
         });
 
         services.AddScoped<IExoplanetService, ExoplanetService>();
+        services.AddScoped<IExoplanetRepository, ExoplanetRepository>();
         return services;
     }
 }

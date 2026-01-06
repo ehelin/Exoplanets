@@ -1,132 +1,69 @@
-﻿using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using Exoplanet.DAL;
-using Exoplanet.Services;
+﻿using Exoplanet.DAL;
+using Exoplanet.Shared.Entities;
+using Exoplanet.Shared.Interfaces;
+using Exoplanet.Shared.Models;
 using Microsoft.EntityFrameworkCore;
+using Shared.Interfaces;
+using Shared.Models;
 
 namespace Exoplanet.Services;
 
 public sealed class ExoplanetService : IExoplanetService
 {
     private readonly IExoplanetApiClient _api;
-    private readonly ExoplanetDbContext _db;
+    private readonly IExoplanetRepository _repo;
 
-    public ExoplanetService(IExoplanetApiClient api, ExoplanetDbContext db)
+    public ExoplanetService(IExoplanetApiClient api, IExoplanetRepository repo)
     {
         _api = api;
-        _db = db;
+        _repo = repo;
     }
 
-    public async Task<ExoplanetRunResult> RunAsync(CancellationToken ct)
+    public async Task<ExoplanetRunResult> RunAsync()
     {
-        int fetched = 0, inserted = 0, updated = 0, skipped = 0;
+        var incoming = await _api.FetchExoplanetsAsync();
 
-        const int batchSize = 500;
-        var batch = new List<(PsCompParsKeys keys, string payloadJson, string hash)>(batchSize);
-        var elements = _api.FetchPsCompParsAsync(ct);
-
-        await foreach (var element in elements)
-        {
-            fetched++;
-
-            var payloadJson = element.GetRawText();
-            var keys = JsonSerializer.Deserialize<PsCompParsKeys>(payloadJson) ?? new PsCompParsKeys();
-
-            // Strong opinion: if we don't have stable keys, skip (or send to a rejects table later)
-            if (string.IsNullOrWhiteSpace(keys.PlName) || string.IsNullOrWhiteSpace(keys.Hostname))
+        var normalized = incoming
+            .Where(x => !string.IsNullOrWhiteSpace(x.PlanetName) && !string.IsNullOrWhiteSpace(x.HostStar))
+            .Select(x => new
             {
-                skipped++;
-                continue;
-            }
-
-            var hash = Sha256Hex(NormalizeJson(payloadJson));
-            batch.Add((keys, payloadJson, hash));
-
-            if (batch.Count >= batchSize)
-            {
-                var (i, u, s) = await UpsertBatchAsync(batch, ct);
-                inserted += i; updated += u; skipped += s;
-                batch.Clear();
-            }
-        }
-
-        if (batch.Count > 0)
-        {
-            var (i, u, s) = await UpsertBatchAsync(batch, ct);
-            inserted += i; updated += u; skipped += s;
-        }
-
-        return new ExoplanetRunResult(fetched, inserted, updated, skipped);
-    }
-
-    private async Task<(int inserted, int updated, int skipped)> UpsertBatchAsync(
-        List<(PsCompParsKeys keys, string payloadJson, string hash)> batch,
-        CancellationToken ct)
-    {
-        int inserted = 0, updated = 0, skipped = 0;
-
-        var distinctKeys = batch
-            .Select(x => new { Pl = x.keys.PlName!, Host = x.keys.Hostname! })
-            .Distinct()
+                PlanetName = x.PlanetName!.Trim(),
+                HostStar = x.HostStar!.Trim(),
+                DiscoveryYear = x.DiscoveryYear
+            })
+            .DistinctBy(x => (x.PlanetName, x.HostStar))
             .ToList();
 
-        // NOTE: this "Any" pattern is simple but not the fastest for large batches.
-        // If we want performance, we’ll switch to ON CONFLICT DO UPDATE via raw SQL.
-        var existing = await _db.ExoplanetRaw
-            .Where(r => distinctKeys.Any(k => k.Pl == r.PlName && k.Host == r.Hostname))
-            .ToListAsync(ct);
+        // DAL owns reads
+        var existingSet = await _repo.GetExistingKeysAsync();
 
-        var map = existing.ToDictionary(x => (x.PlName, x.Hostname), x => x);
+        var toInsert = new List<ExoplanetEntity>(capacity: Math.Max(0, normalized.Count - existingSet.Count));
 
-        foreach (var item in batch)
+        foreach (var x in normalized)
         {
-            var pl = item.keys.PlName!;
-            var host = item.keys.Hostname!;
+            if (existingSet.Contains((x.PlanetName, x.HostStar)))
+                continue;
 
-            if (!map.TryGetValue((pl, host), out var row))
+            toInsert.Add(new ExoplanetEntity
             {
-                _db.ExoplanetRaw.Add(new ExoplanetRaw
-                {
-                    PlName = pl,
-                    Hostname = host,
-                    DiscYear = item.keys.DiscYear,
-                    RowHash = item.hash,
-                    IngestedAtUtc = DateTime.UtcNow,
-                    PayloadJson = item.payloadJson
-                });
-                inserted++;
-            }
-            else
-            {
-                if (row.RowHash == item.hash)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                row.DiscYear = item.keys.DiscYear;
-                row.RowHash = item.hash;
-                row.IngestedAtUtc = DateTime.UtcNow;
-                row.PayloadJson = item.payloadJson;
-                updated++;
-            }
+                PlanetName = x.PlanetName,
+                HostStar = x.HostStar,
+                DiscoveryYear = x.DiscoveryYear,
+                CreatedUtc = DateTimeOffset.UtcNow,
+                UpdatedUtc = DateTimeOffset.UtcNow
+            });
         }
 
-        await _db.SaveChangesAsync(ct);
-        return (inserted, updated, skipped);
-    }
+        // DAL owns writes
+        var inserted = await _repo.InsertNewAsync(toInsert);
 
-    private static string NormalizeJson(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        return JsonSerializer.Serialize(doc.RootElement);
-    }
-
-    private static string Sha256Hex(string input)
-    {
-        var bytes = Encoding.UTF8.GetBytes(input);
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return new ExoplanetRunResult
+        {
+            Fetched = incoming.Count,
+            ValidIncoming = normalized.Count,
+            Existing = normalized.Count - toInsert.Count,
+            Inserted = inserted,
+            Skipped = incoming.Count - toInsert.Count
+        };
     }
 }

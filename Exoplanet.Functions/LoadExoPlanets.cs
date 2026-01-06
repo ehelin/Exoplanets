@@ -1,4 +1,5 @@
 using Exoplanet.Services;
+using Exoplanet.Shared.Interfaces;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
@@ -31,7 +32,7 @@ public sealed class LoadExoPlanets
     {
         _log.LogInformation("ExoplanetDaily start");
 
-        var result = await _svc.RunAsync(ct);
+        var result = await _svc.RunAsync();
 
         _log.LogInformation(
             "ExoplanetDaily done. fetched={fetched} inserted={inserted} updated={updated} skipped={skipped}",

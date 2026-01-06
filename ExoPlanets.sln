@@ -9,6 +9,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Exoplanet.Functions", "Exop
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Exoplanet.Services", "Exoplanet.Services\Exoplanet.Services.csproj", "{2F6EE2A6-0B71-767D-C287-A2B8E74C6C2D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shared", "Shared\Shared.csproj", "{7EB4D1D5-41CB-48AC-B522-ED5E99A1F554}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Scripts", "Scripts", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+	ProjectSection(SolutionItems) = preProject
+		Scripts\CreateDatabaseSchemaTable.sql = Scripts\CreateDatabaseSchemaTable.sql
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +34,10 @@ Global
 		{2F6EE2A6-0B71-767D-C287-A2B8E74C6C2D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2F6EE2A6-0B71-767D-C287-A2B8E74C6C2D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2F6EE2A6-0B71-767D-C287-A2B8E74C6C2D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7EB4D1D5-41CB-48AC-B522-ED5E99A1F554}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7EB4D1D5-41CB-48AC-B522-ED5E99A1F554}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7EB4D1D5-41CB-48AC-B522-ED5E99A1F554}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7EB4D1D5-41CB-48AC-B522-ED5E99A1F554}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
