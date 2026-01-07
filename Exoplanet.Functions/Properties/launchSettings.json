@@ -1,7 +1,16 @@
 {
   "profiles": {
-    "Exoplanet.Functions": {
-      "commandName": "Project"
+    "Exoplanet.Functions (Dev)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "AZURE_FUNCTIONS_ENVIRONMENT": "Development"
+      }
+    },
+    "Exoplanet.Functions (ProdSim)": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "AZURE_FUNCTIONS_ENVIRONMENT": "Production"
+      }
     }
   }
 }

@@ -7,25 +7,23 @@ var host = new HostBuilder()
     .ConfigureFunctionsWebApplication()
     .ConfigureAppConfiguration((ctx, cfg) =>
     {
-        // Keep whatever the host already set up
-        // Then add our local, gitignored config files with overloads
-        cfg.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-           .AddJsonFile($"appsettings.{ctx.HostingEnvironment.EnvironmentName}.json", optional: true, reloadOnChange: true);
+        // Azure Functions commonly uses AZURE_FUNCTIONS_ENVIRONMENT.
+        // .NET generic host commonly uses DOTNET_ENVIRONMENT.
+        // Fall back to what HostingEnvironment thinks, then Production.
+        var env =
+            Environment.GetEnvironmentVariable("AZURE_FUNCTIONS_ENVIRONMENT") ??
+            Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ??
+            ctx.HostingEnvironment.EnvironmentName ??
+            "Production";
 
-        // Final override layer (Azure App Settings, local env vars, etc.)
-        cfg.AddEnvironmentVariables();
+        cfg.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+           .AddJsonFile($"appsettings.{env}.json", optional: true, reloadOnChange: true)
+           .AddEnvironmentVariables();
     })
     .ConfigureServices((ctx, services) =>
     {
-        // Preferred: classic ConnectionStrings section (supports overload files)
         var cs = ctx.Configuration.GetConnectionString("DefaultConnection");
-
-        // Back-compat fallback: your existing env var name
         cs ??= ctx.Configuration["POSTGRES_CONNECTION_STRING"];
-
-        // If you want to enforce it, uncomment:
-        // if (string.IsNullOrWhiteSpace(cs))
-        //     throw new InvalidOperationException("Missing connection string. Set ConnectionStrings:DefaultConnection (appsettings*) or POSTGRES_CONNECTION_STRING (env var).");
 
         services.AddExoplanetServices(cs);
     })
