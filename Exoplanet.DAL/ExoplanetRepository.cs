@@ -1,4 +1,4 @@
-﻿using Exoplanet.Shared.Entities;
+using Exoplanet.Shared.Entities;
 using Microsoft.EntityFrameworkCore;
 using Shared.Interfaces;
 
@@ -12,6 +12,8 @@ public sealed class ExoplanetRepository : IExoplanetRepository
     {
         _db = db;
     }
+
+    // ── Phase 1 (still used) ───────────────────────────────
 
     public async Task<HashSet<(string PlanetName, string HostStar)>> GetExistingKeysAsync()
     {
@@ -32,5 +34,72 @@ public sealed class ExoplanetRepository : IExoplanetRepository
 
         _db.Exoplanets.AddRange(newEntities);
         return await _db.SaveChangesAsync();
+    }
+
+    // ── Phase 2: Full record loading for diff ──────────────
+
+    public async Task<List<ExoplanetEntity>> GetAllExistingAsync()
+    {
+        return await _db.Exoplanets
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    public async Task UpdateExistingAsync(List<ExoplanetEntity> updatedEntities)
+    {
+        if (updatedEntities.Count == 0)
+            return;
+
+        foreach (var entity in updatedEntities)
+        {
+            _db.Exoplanets.Attach(entity);
+            _db.Entry(entity).State = EntityState.Modified;
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Phase 2: Evidence tables ───────────────────────────
+
+    public async Task<IngestRunEntity> CreateIngestRunAsync(string source, string? sourceUrl, int rowsFetched)
+    {
+        var run = new IngestRunEntity
+        {
+            RunTimestamp = DateTimeOffset.UtcNow,
+            Source = source,
+            SourceUrl = sourceUrl,
+            RowsFetched = rowsFetched,
+            Status = "RUNNING"
+        };
+
+        _db.IngestRuns.Add(run);
+        await _db.SaveChangesAsync();
+        return run;
+    }
+
+    public async Task CompleteIngestRunAsync(IngestRunEntity run)
+    {
+        run.CompletedAt = DateTimeOffset.UtcNow;
+        run.Status = "COMPLETED";
+        _db.IngestRuns.Update(run);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task FailIngestRunAsync(IngestRunEntity run, string errorMessage)
+    {
+        run.CompletedAt = DateTimeOffset.UtcNow;
+        run.Status = "FAILED";
+        run.ErrorMessage = errorMessage;
+        _db.IngestRuns.Update(run);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task WriteChangeLogAsync(List<ChangeLogEntity> entries)
+    {
+        if (entries.Count == 0)
+            return;
+
+        _db.ChangeLogs.AddRange(entries);
+        await _db.SaveChangesAsync();
     }
 }
