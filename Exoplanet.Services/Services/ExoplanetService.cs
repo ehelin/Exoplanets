@@ -1,6 +1,7 @@
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
 using Exoplanet.Shared.Models;
+using Microsoft.Extensions.Logging;
 using Shared.Interfaces;
 using Shared.Models;
 
@@ -10,14 +11,22 @@ public sealed class ExoplanetService : IExoplanetService
 {
     private readonly IExoplanetApiClient _api;
     private readonly IExoplanetRepository _repo;
+    private readonly IChangeReportService _reportService;
+    private readonly ILogger<ExoplanetService> _log;
 
     private const string SourceName = "NASA_EXOPLANET_ARCHIVE";
     private const string SourceUrl = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+pl_name,hostname,disc_year+from+pscomppars&format=json";
 
-    public ExoplanetService(IExoplanetApiClient api, IExoplanetRepository repo)
+    public ExoplanetService(
+        IExoplanetApiClient api,
+        IExoplanetRepository repo,
+        IChangeReportService reportService,
+        ILogger<ExoplanetService> log)
     {
         _api = api;
         _repo = repo;
+        _reportService = reportService;
+        _log = log;
     }
 
     /// <summary>
@@ -29,7 +38,7 @@ public sealed class ExoplanetService : IExoplanetService
     ///   5. Write diffs to change_log
     ///   6. Apply mutations to exoplanets table
     ///   7. Complete ingest_run (COMPLETED)
-    ///   8. [Phase 2.3 — AI explains diffs — not yet implemented]
+    ///   8. AI explains diffs → change_report
     /// </summary>
     public async Task<ExoplanetRunResult> RunAsync()
     {
@@ -57,11 +66,6 @@ public sealed class ExoplanetService : IExoplanetService
             if (diff.ToUpdate.Count > 0)
                 await _repo.UpdateExistingAsync(diff.ToUpdate);
 
-            // Note: DELETE detection is logged but we don't delete rows.
-            // NASA may temporarily drop records. The change_log records
-            // the absence. A future workflow can handle actual deletion
-            // if that's ever desired.
-
             // Step 7: Mark run complete
             run.RowsNew = diff.NewCount;
             run.RowsUpdated = diff.UpdatedCount;
@@ -70,9 +74,20 @@ public sealed class ExoplanetService : IExoplanetService
             run.RowsFetched = incoming.Count;
             await _repo.CompleteIngestRunAsync(run);
 
-            // Step 8: [Phase 2.3] AI explains diffs — TODO
-            // if (diff.Changes.Count > 0)
-            //     await _aiExplainer.GenerateReportAsync(run.Id, diff.Changes);
+            // Step 8: AI explains what changed — Phase 2.3
+            if (diff.Changes.Count > 0)
+            {
+                try
+                {
+                    await _reportService.GenerateReportAsync(run.Id);
+                }
+                catch (Exception ex)
+                {
+                    // AI failure should not fail the pipeline.
+                    // The evidence is already recorded. The narrative is optional.
+                    _log.LogWarning(ex, "AI report generation failed for run {RunId}. Evidence is intact.", run.Id);
+                }
+            }
 
             return new ExoplanetRunResult
             {

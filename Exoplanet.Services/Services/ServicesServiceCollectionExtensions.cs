@@ -1,4 +1,4 @@
-﻿using Exoplanet.DAL;
+using Exoplanet.DAL;
 using Exoplanet.Shared.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Interfaces;
@@ -16,6 +16,9 @@ public static class ServicesServiceCollectionExtensions
             http.BaseAddress = new Uri("https://exoplanetarchive.ipac.caltech.edu/");
             http.Timeout = TimeSpan.FromMinutes(10);
         });
+
+        // Phase 2.3: OpenAI client for change reports
+        services.AddHttpClient<IChangeReportService, ChangeReportService>();
 
         services.AddScoped<IExoplanetService, ExoplanetService>();
         services.AddScoped<IExoplanetRepository, ExoplanetRepository>();

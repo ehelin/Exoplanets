@@ -102,4 +102,19 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         _db.ChangeLogs.AddRange(entries);
         await _db.SaveChangesAsync();
     }
+    public async Task<List<ChangeLogEntity>> GetChangeLogByRunAsync(int ingestRunId)
+    {
+        return await _db.ChangeLogs
+            .AsNoTracking()
+            .Where(c => c.IngestRunId == ingestRunId)
+            .OrderBy(c => c.ChangeType)
+            .ThenBy(c => c.PlanetName)
+            .ToListAsync();
+    }
+
+    public async Task WriteChangeReportAsync(ChangeReportEntity report)
+    {
+        _db.ChangeReports.Add(report);
+        await _db.SaveChangesAsync();
+    }
 }

@@ -17,5 +17,7 @@ namespace Shared.Interfaces
         Task CompleteIngestRunAsync(IngestRunEntity run);
         Task FailIngestRunAsync(IngestRunEntity run, string errorMessage);
         Task WriteChangeLogAsync(List<ChangeLogEntity> entries);
+        Task<List<ChangeLogEntity>> GetChangeLogByRunAsync(int ingestRunId);
+        Task WriteChangeReportAsync(ChangeReportEntity report);
     }
 }
