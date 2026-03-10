@@ -1,24 +1,25 @@
 using Exoplanet.Services;
+using Exoplanet.Shared.Interfaces;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+var config = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.Production.json", optional: false)
+    .AddEnvironmentVariables()
+    .Build();
+
 var services = new ServiceCollection();
-
-// Add logging so you can see output
+services.AddSingleton<IConfiguration>(config);
 services.AddLogging(builder => builder.AddConsole());
-
-// Add your services (pass empty connection string for now)
-services.AddExoplanetServices(connectionString: "");
+services.AddExoplanetServices(config.GetConnectionString("DefaultConnection") ?? "");
 
 var provider = services.BuildServiceProvider();
-
 var svc = provider.GetRequiredService<IExoplanetService>();
 var logger = provider.GetRequiredService<ILogger<Program>>();
 
 logger.LogInformation("Starting ExoplanetService...");
-
-var result = await svc.RunAsync(CancellationToken.None);
-
+var result = await svc.RunAsync();
 logger.LogInformation(
     "Done. Fetched={Fetched}, Inserted={Inserted}, Updated={Updated}, Skipped={Skipped}",
     result.Fetched, result.Inserted, result.Updated, result.Skipped);

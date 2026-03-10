@@ -83,27 +83,44 @@ public sealed class ChangeReportService : IChangeReportService
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("You are an astronomer's assistant. Below is a structured diff from the latest NASA Exoplanet Archive ingestion. Each line describes one detected change.");
+        sb.AppendLine("You are a data pipeline reporter. Below is a structured diff from the latest NASA Exoplanet Archive ingestion.");
         sb.AppendLine();
-        sb.AppendLine("Summarize these changes in 2-4 sentences of plain English. Focus on what is scientifically interesting. Do not invent information — only describe what the diffs show.");
+        sb.AppendLine("Rules:");
+        sb.AppendLine("- Only describe what the diffs show. Do not interpret scientific significance.");
+        sb.AppendLine("- Do not speculate about discoveries, habitability, or implications.");
+        sb.AppendLine("- A large number of INSERTs likely means the pipeline ran against an empty or reset database, not new discoveries.");
+        sb.AppendLine("- State counts and specifics. Be factual and concise.");
+        sb.AppendLine("- 2-4 sentences maximum.");
         sb.AppendLine();
-        sb.AppendLine("--- CHANGES ---");
 
-        foreach (var c in changes)
+        var inserts = changes.Count(c => c.ChangeType == "INSERT");
+        var updates = changes.Count(c => c.ChangeType == "UPDATE");
+        var deletes = changes.Count(c => c.ChangeType == "DELETE");
+
+        sb.AppendLine($"Summary: {inserts} inserts, {updates} updates, {deletes} deletes.");
+        sb.AppendLine();
+        sb.AppendLine("--- CHANGES (sample, max 50) ---");
+
+        var sampled = changes.Take(50).ToList();
+
+        foreach (var c in sampled)
         {
             switch (c.ChangeType)
             {
                 case "INSERT":
-                    sb.AppendLine($"NEW PLANET: {c.PlanetName}");
+                    sb.AppendLine($"INSERT: {c.PlanetName}");
                     break;
                 case "DELETE":
-                    sb.AppendLine($"REMOVED FROM SOURCE: {c.PlanetName}");
+                    sb.AppendLine($"DELETE: {c.PlanetName}");
                     break;
                 case "UPDATE":
-                    sb.AppendLine($"UPDATED: {c.PlanetName} — {c.FieldName} changed from [{c.OldValue ?? "null"}] to [{c.NewValue ?? "null"}]");
+                    sb.AppendLine($"UPDATE: {c.PlanetName} — {c.FieldName}: [{c.OldValue ?? "null"}] → [{c.NewValue ?? "null"}]");
                     break;
             }
         }
+
+        if (changes.Count > 50)
+            sb.AppendLine($"... and {changes.Count - 50} more.");
 
         sb.AppendLine("--- END CHANGES ---");
         return sb.ToString();
@@ -126,7 +143,7 @@ public sealed class ChangeReportService : IChangeReportService
         var content = new StringContent(json, Encoding.UTF8, "application/json");
 
         var response = await _http.PostAsync("https://api.openai.com/v1/chat/completions", content);
-        response.EnsureSuccessStatusCode();
+       // response.EnsureSuccessStatusCode();
 
         var responseJson = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(responseJson);
