@@ -24,3 +24,17 @@ CREATE TABLE IF NOT EXISTS exoplanet.exoplanets
     CONSTRAINT uq_exoplanets_planet_host UNIQUE (planet_name, host_star)
 );
 
+SET search_path TO exoplanet;
+
+CREATE TABLE pipeline_log (
+    id              BIGSERIAL PRIMARY KEY,
+    ingest_run_id   INT REFERENCES ingest_run(id),
+    log_level       VARCHAR(20) NOT NULL,       -- INFO, WARNING, ERROR
+    message         TEXT NOT NULL,
+    exception       TEXT,
+    logged_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_pipeline_log_run ON pipeline_log (ingest_run_id);
+CREATE INDEX idx_pipeline_log_time ON pipeline_log (logged_at DESC);
+CREATE INDEX idx_pipeline_log_level ON pipeline_log (log_level);

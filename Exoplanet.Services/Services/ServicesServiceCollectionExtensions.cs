@@ -17,9 +17,8 @@ public static class ServicesServiceCollectionExtensions
             http.Timeout = TimeSpan.FromMinutes(10);
         });
 
-        // Phase 2.3: OpenAI client for change reports
         services.AddHttpClient<IChangeReportService, ChangeReportService>();
-
+        services.AddScoped<IPipelineLogger, PipelineLogger>();
         services.AddScoped<IExoplanetService, ExoplanetService>();
         services.AddScoped<IExoplanetRepository, ExoplanetRepository>();
         return services;

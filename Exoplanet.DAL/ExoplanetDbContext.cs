@@ -12,6 +12,7 @@ public sealed class ExoplanetDbContext : DbContext
     public DbSet<IngestRunEntity> IngestRuns => Set<IngestRunEntity>();
     public DbSet<ChangeLogEntity> ChangeLogs => Set<ChangeLogEntity>();
     public DbSet<ChangeReportEntity> ChangeReports => Set<ChangeReportEntity>();
+    public DbSet<PipelineLogEntity> PipelineLogs => Set<PipelineLogEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +179,19 @@ public sealed class ExoplanetDbContext : DbContext
             e.HasOne(x => x.IngestRun)
                 .WithMany()
                 .HasForeignKey(x => x.IngestRunId);
+        });
+
+        modelBuilder.Entity<PipelineLogEntity>(e =>
+        {
+            e.ToTable("pipeline_log", schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.IngestRunId).HasColumnName("ingest_run_id");
+            e.Property(x => x.LogLevel).HasColumnName("log_level").HasMaxLength(20).IsRequired();
+            e.Property(x => x.Message).HasColumnName("message").IsRequired();
+            e.Property(x => x.Exception).HasColumnName("exception");
+            e.Property(x => x.LoggedAt).HasColumnName("logged_at").HasDefaultValueSql("NOW()");
+            e.HasOne(x => x.IngestRun).WithMany().HasForeignKey(x => x.IngestRunId).IsRequired(false);
         });
     }
 }

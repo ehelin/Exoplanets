@@ -12,6 +12,7 @@ public sealed class ExoplanetService : IExoplanetService
     private readonly IExoplanetApiClient _api;
     private readonly IExoplanetRepository _repo;
     private readonly IChangeReportService _reportService;
+    private readonly IPipelineLogger _plog;
     private readonly ILogger<ExoplanetService> _log;
 
     private const string SourceName = "NASA_EXOPLANET_ARCHIVE";
@@ -21,52 +22,40 @@ public sealed class ExoplanetService : IExoplanetService
         IExoplanetApiClient api,
         IExoplanetRepository repo,
         IChangeReportService reportService,
+        IPipelineLogger plog,
         ILogger<ExoplanetService> log)
     {
         _api = api;
         _repo = repo;
         _reportService = reportService;
+        _plog = plog;
         _log = log;
     }
 
-    /// <summary>
-    /// Phase 2 pipeline — evidence-first ordering:
-    ///   1. Fetch from NASA
-    ///   2. Create ingest_run record (RUNNING)
-    ///   3. Load existing state from DB
-    ///   4. Compute diffs (deterministic, no AI)
-    ///   5. Write diffs to change_log
-    ///   6. Apply mutations to exoplanets table
-    ///   7. Complete ingest_run (COMPLETED)
-    ///   8. AI explains diffs → change_report
-    /// </summary>
     public async Task<ExoplanetRunResult> RunAsync()
     {
-        // Step 1: Fetch from source
-        var incoming = await _api.FetchExoplanetsAsync();
+        await _plog.Info("Pipeline starting.");
 
-        // Step 2: Record that this run happened
+        var incoming = await _api.FetchExoplanetsAsync();
+        await _plog.Info($"Fetched {incoming.Count} records from NASA.");
+
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
+        await _plog.Info($"Ingest run {run.Id} created.", run.Id);
 
         try
         {
-            // Step 3: Load current state
             var existing = await _repo.GetAllExistingAsync();
-
-            // Step 4: Compute diffs — deterministic, code-only
             var diff = DiffEngine.ComputeDiffs(incoming, existing, run.Id);
+            await _plog.Info($"Diff: {diff.NewCount} new, {diff.UpdatedCount} updated, {diff.DeletedCount} deleted, {diff.UnchangedCount} unchanged.", run.Id);
 
-            // Step 5: Write evidence BEFORE mutating
             await _repo.WriteChangeLogAsync(diff.Changes);
 
-            // Step 6: Now apply mutations
             if (diff.ToInsert.Count > 0)
                 await _repo.InsertNewAsync(diff.ToInsert);
 
             if (diff.ToUpdate.Count > 0)
                 await _repo.UpdateExistingAsync(diff.ToUpdate);
 
-            // Step 7: Mark run complete
             run.RowsNew = diff.NewCount;
             run.RowsUpdated = diff.UpdatedCount;
             run.RowsDeleted = diff.DeletedCount;
@@ -74,20 +63,21 @@ public sealed class ExoplanetService : IExoplanetService
             run.RowsFetched = incoming.Count;
             await _repo.CompleteIngestRunAsync(run);
 
-            // Step 8: AI explains what changed — Phase 2.3
             if (diff.Changes.Count > 0)
             {
                 try
                 {
                     await _reportService.GenerateReportAsync(run.Id);
+                    await _plog.Info("AI report generated.", run.Id);
                 }
                 catch (Exception ex)
                 {
-                    // AI failure should not fail the pipeline.
-                    // The evidence is already recorded. The narrative is optional.
-                    _log.LogWarning(ex, "AI report generation failed for run {RunId}. Evidence is intact.", run.Id);
+                    _log.LogWarning(ex, "AI report generation failed for run {RunId}.", run.Id);
+                    await _plog.Warning($"AI report failed: {ex.Message}", run.Id);
                 }
             }
+
+            await _plog.Info("Pipeline complete.", run.Id);
 
             return new ExoplanetRunResult
             {
@@ -101,6 +91,7 @@ public sealed class ExoplanetService : IExoplanetService
         }
         catch (Exception ex)
         {
+            await _plog.Error($"Pipeline failed: {ex.Message}", run.Id, ex);
             await _repo.FailIngestRunAsync(run, ex.Message);
             throw;
         }
