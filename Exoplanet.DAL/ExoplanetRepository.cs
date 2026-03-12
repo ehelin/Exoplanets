@@ -122,8 +122,8 @@ public sealed class ExoplanetRepository : IExoplanetRepository
     // ── Classification: AI writes back to change_log and exoplanets ──
 
     public async Task ApplyClassificationsAsync(
-        List<ChangeLogEntity> changes,
-        Dictionary<string, (string Classification, string Reasoning)> classifications)
+    List<ChangeLogEntity> changes,
+    Dictionary<string, (string Classification, string Reasoning)> classifications)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -131,14 +131,6 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         {
             if (!classifications.TryGetValue(change.PlanetName, out var result))
                 continue;
-
-            // Update change_log row with AI classification
-            var logEntry = await _db.ChangeLogs.FindAsync(change.Id);
-            if (logEntry != null)
-            {
-                logEntry.AiClassification = result.Classification;
-                logEntry.AiReasoning = result.Reasoning;
-            }
 
             // Update exoplanets table with classification
             var planet = await _db.Exoplanets
@@ -150,7 +142,7 @@ public sealed class ExoplanetRepository : IExoplanetRepository
                 planet.Classification = result.Classification;
                 planet.UpdatedUtc = now;
 
-                // Log the classification change in change_log
+                // Log the classification change in change_log — this is the AI's action
                 _db.ChangeLogs.Add(new ChangeLogEntity
                 {
                     IngestRunId = change.IngestRunId,
