@@ -17,7 +17,11 @@ public static class ServicesServiceCollectionExtensions
             http.Timeout = TimeSpan.FromMinutes(10);
         });
 
-        services.AddHttpClient<IChangeReportService, ChangeReportService>();
+        services.AddHttpClient<IChangeReportService, ChangeReportService>(); 
+        services.AddHttpClient<IChangeClassifierService, ChangeClassifierService>(http =>
+        {
+            http.Timeout = TimeSpan.FromMinutes(5);
+        });
         services.AddScoped<IPipelineLogger, PipelineLogger>();
         services.AddScoped<IExoplanetService, ExoplanetService>();
         services.AddScoped<IExoplanetRepository, ExoplanetRepository>();

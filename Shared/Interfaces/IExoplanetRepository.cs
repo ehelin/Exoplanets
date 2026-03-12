@@ -19,5 +19,10 @@ namespace Shared.Interfaces
         Task WriteChangeLogAsync(List<ChangeLogEntity> entries);
         Task<List<ChangeLogEntity>> GetChangeLogByRunAsync(int ingestRunId);
         Task WriteChangeReportAsync(ChangeReportEntity report);
+
+        // Classification
+        Task ApplyClassificationsAsync(
+            List<ChangeLogEntity> changes,
+            Dictionary<string, (string Classification, string Reasoning)> classifications);
     }
 }

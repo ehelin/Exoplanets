@@ -9,6 +9,8 @@ public class ChangeLogEntity
     public string? FieldName { get; set; }
     public string? OldValue { get; set; }
     public string? NewValue { get; set; }
+    public string? AiClassification { get; set; }
+    public string? AiReasoning { get; set; }
     public DateTimeOffset DetectedAt { get; set; }
 
     // Navigation

@@ -47,6 +47,11 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.UpdatedUtc)
                 .HasColumnName("updated_utc");
 
+            e.Property(x => x.Classification)
+                .HasColumnName("classification")
+                .HasMaxLength(50);
+
+
             // Natural key = dedup definition
             e.HasIndex(x => new { x.PlanetName, x.HostStar })
                 .IsUnique();
@@ -137,6 +142,13 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.DetectedAt)
                 .HasColumnName("detected_at")
                 .HasDefaultValueSql("NOW()");
+
+            e.Property(x => x.AiClassification)
+             .HasColumnName("ai_classification")
+             .HasMaxLength(20);
+
+            e.Property(x => x.AiReasoning)
+                .HasColumnName("ai_reasoning");
 
             e.HasOne(x => x.IngestRun)
                 .WithMany()

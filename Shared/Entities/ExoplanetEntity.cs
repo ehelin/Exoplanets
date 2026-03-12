@@ -1,4 +1,4 @@
-﻿namespace Exoplanet.Shared.Entities;
+namespace Exoplanet.Shared.Entities;
 
 public class ExoplanetEntity
 {
@@ -7,6 +7,7 @@ public class ExoplanetEntity
     public string PlanetName { get; set; } = null!;
     public string HostStar { get; set; } = null!;
     public int? DiscoveryYear { get; set; }
+    public string? Classification { get; set; }
 
     public DateTimeOffset CreatedUtc { get; set; }
     public DateTimeOffset UpdatedUtc { get; set; }
