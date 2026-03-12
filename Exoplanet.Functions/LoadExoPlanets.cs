@@ -18,7 +18,7 @@ public sealed class LoadExoPlanets
     }
 
     [Function("ExoplanetDaily")]
-    public async Task RunAsync([TimerTrigger("0 0 10 * * *", RunOnStartup = true)] TimerInfo timer, CancellationToken ct)
+    public async Task RunAsync([TimerTrigger("0 0 10 1 * *", RunOnStartup = true)] TimerInfo timer, CancellationToken ct)
     {
         _log.LogInformation("ExoplanetDaily start");
 

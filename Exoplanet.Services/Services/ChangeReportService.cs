@@ -16,16 +16,16 @@ namespace Exoplanet.Services;
 /// </summary>
 public sealed class ChangeReportService : IChangeReportService
 {
+    #region class variables 
+
     private readonly HttpClient _http;
     private readonly IExoplanetRepository _repo;
     private readonly ILogger<ChangeReportService> _log;
     private readonly string _model;
 
-    public ChangeReportService(
-        HttpClient http,
-        IExoplanetRepository repo,
-        IConfiguration config,
-        ILogger<ChangeReportService> log)
+    #endregion
+
+    public ChangeReportService(HttpClient http, IExoplanetRepository repo, IConfiguration config, ILogger<ChangeReportService> log)
     {
         _http = http;
         _repo = repo;
@@ -54,9 +54,7 @@ public sealed class ChangeReportService : IChangeReportService
         // Step 2: Build the prompt from structured diffs
         var prompt = BuildPrompt(changes);
 
-        _log.LogInformation(
-            "Generating change report for run {RunId} with {ChangeCount} diffs using {Model}.",
-            ingestRunId, changes.Count, _model);
+        _log.LogInformation("Generating change report for run {RunId} with {ChangeCount} diffs using {Model}.", ingestRunId, changes.Count, _model);
 
         // Step 3: Call OpenAI
         var (reportText, tokensUsed) = await CallOpenAiAsync(prompt);
@@ -74,9 +72,7 @@ public sealed class ChangeReportService : IChangeReportService
 
         await _repo.WriteChangeReportAsync(report);
 
-        _log.LogInformation(
-            "Change report saved for run {RunId}. Tokens used: {Tokens}.",
-            ingestRunId, tokensUsed);
+        _log.LogInformation("Change report saved for run {RunId}. Tokens used: {Tokens}.", ingestRunId, tokensUsed);
     }
 
     private static string BuildPrompt(List<ChangeLogEntity> changes)
