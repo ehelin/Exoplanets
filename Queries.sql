@@ -5,8 +5,16 @@ select * from exoplanet.change_log;
 select * from exoplanet.exoplanets;
 select * from exoplanet.change_report;
 
-TRUNCATE exoplanet.ingest_run CASCADE;
-TRUNCATE exoplanet.exoplanets;
+TRUNCATE exoplanet.eval_result, 
+exoplanet.pipeline_log, 
+exoplanet.change_report, 
+exoplanet.change_log, 
+exoplanet.atmospheres, 
+exoplanet.ingest_run, 
+exoplanet.planet_stars, 
+exoplanet.planets, 
+exoplanet.stars, 
+exoplanet.solar_systems CASCADE;
 
 SELECT 
     e.planet_name,

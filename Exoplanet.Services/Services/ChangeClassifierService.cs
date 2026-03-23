@@ -4,7 +4,6 @@ using System.Text.Json;
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Shared.Interfaces;
 
 namespace Exoplanet.Services;
@@ -14,21 +13,18 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     private readonly HttpClient _http;
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
-    private readonly ILogger<ChangeClassifierService> _log;
     private readonly string _model;
-    private const int BatchSize = 50;
+    private const int BatchSize = 500;
 
     public ChangeClassifierService(
         HttpClient http,
         IExoplanetRepository repo,
         IPipelineLogger plog,
-        IConfiguration config,
-        ILogger<ChangeClassifierService> log)
+        IConfiguration config)
     {
         _http = http;
         _repo = repo;
         _plog = plog;
-        _log = log;
         _model = config["OpenAI:Model"] ?? "gpt-4o-mini";
 
         var apiKey = config["OpenAI:ApiKey"];
@@ -49,8 +45,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             return;
         }
 
-        // Load planet data once for all batches
-        var planets = await _repo.GetAllExistingAsync();
+        var planets = await _repo.GetAllPlanetsAsync();
         var planetLookup = planets.ToDictionary(p => p.PlanetName, p => p);
 
         await _plog.Info($"Classifying {changes.Count} changes in batches of {BatchSize}.", ingestRunId);
@@ -79,7 +74,6 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "Classification batch {Batch} failed for run {RunId}.", batchNum, ingestRunId);
                 await _plog.Warning($"Batch {batchNum} classification failed: {ex.Message}", ingestRunId);
             }
         }
@@ -89,42 +83,46 @@ public sealed class ChangeClassifierService : IChangeClassifierService
 
     private static string BuildClassificationPrompt(
         List<ChangeLogEntity> batch,
-        Dictionary<string, ExoplanetEntity> planetLookup)
+        Dictionary<string, PlanetEntity> planetLookup)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("You are a data quality classifier for an exoplanet database.");
+        sb.AppendLine("You are an exoplanet classifier. For each planet below, provide TWO classifications:");
         sb.AppendLine();
-        sb.AppendLine("For each planet below, classify it as one of:");
-        sb.AppendLine("- CONFIRMED: has a host star and a discovery year between 1992 and 2026");
-        sb.AppendLine("- CANDIDATE: missing discovery year or host star");
-        sb.AppendLine("- ANOMALY: discovery year before 1992 or after 2025, name appears malformed, or other data quality concern");
+        sb.AppendLine("1. DATA QUALITY classification:");
+        sb.AppendLine("   - CONFIRMED: has discovery year (1992-2026), mass or radius, and orbital data");
+        sb.AppendLine("   - CANDIDATE: missing key measurements (no mass, no radius, no orbital period)");
+        sb.AppendLine("   - ANOMALY: data quality concern (discovery year outside range, suspicious values)");
         sb.AppendLine();
-        sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks, no explanation outside the array.");
-        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"reasoning\": \"...\"}");
+        sb.AppendLine("2. PLAVALOVA CODE (mass-temperature-eccentricity-density):");
+        sb.AppendLine("   Mass: m=Mercury, e=Earth, N=Neptune, J=Jupiter, W=warm Jupiter (>13 Jupiter masses)");
+        sb.AppendLine("   Temperature: F=Frozen(<200K), W=Water(200-450K), G=Gaseous(450-1000K), R=Roaster(>1000K)");
+        sb.AppendLine("   Eccentricity: 0=circular(e<0.1), 1=low(0.1-0.3), 2=moderate(0.3-0.6), 3=high(>0.6)");
+        sb.AppendLine("   Density: g=gaseous(<1), w=water(1-3), t=terrestrial(3-8), i=iron(8-15), s=super-dense(>15)");
+        sb.AppendLine("   Example: Earth = eW0t, Jupiter = JF0g. Use '?' for unknown components.");
+        sb.AppendLine();
+        sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
+        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"plavalova_code\": \"...\", \"reasoning\": \"...\"}");
         sb.AppendLine("Keep reasoning to one sentence max.");
         sb.AppendLine();
         sb.AppendLine("--- PLANETS ---");
 
         foreach (var c in batch)
         {
-            var details = new StringBuilder();
-            details.Append($"name={c.PlanetName}");
+            if (!planetLookup.TryGetValue(c.PlanetName, out var p))
+                continue;
 
-            if (planetLookup.TryGetValue(c.PlanetName, out var planet))
-            {
-                details.Append($", host_star={planet.HostStar}");
-                details.Append($", discovery_year={planet.DiscoveryYear?.ToString() ?? "null"}");
-            }
-
-            if (c.ChangeType == "INSERT")
-                details.Append(", change=NEW");
-            else if (c.ChangeType == "UPDATE")
-                details.Append($", change=UPDATE {c.FieldName}: [{c.OldValue ?? "null"}] → [{c.NewValue ?? "null"}]");
-            else if (c.ChangeType == "DELETE")
-                details.Append(", change=REMOVED_FROM_SOURCE");
-
-            sb.AppendLine(details.ToString());
+            sb.Append($"name={c.PlanetName}");
+            sb.Append($", disc_year={p.DiscoveryYear?.ToString() ?? "?"}");
+            sb.Append($", method={p.DiscoveryMethod ?? "?"}");
+            sb.Append($", mass_earth={p.PlanetMass?.ToString("F2") ?? "?"}");
+            sb.Append($", radius_earth={p.PlanetRadius?.ToString("F2") ?? "?"}");
+            sb.Append($", period_days={p.OrbitalPeriod?.ToString("F2") ?? "?"}");
+            sb.Append($", ecc={p.Eccentricity?.ToString("F3") ?? "?"}");
+            sb.Append($", temp_k={p.EquilibriumTemp?.ToString("F0") ?? "?"}");
+            sb.Append($", density={p.PlanetDensity?.ToString("F2") ?? "?"}");
+            sb.Append($", insol={p.InsolationFlux?.ToString("F2") ?? "?"}");
+            sb.AppendLine();
         }
 
         sb.AppendLine("--- END PLANETS ---");
@@ -140,10 +138,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             var cleaned = responseText.Trim();
             if (cleaned.StartsWith("```"))
             {
-                cleaned = cleaned
-                    .Replace("```json", "")
-                    .Replace("```", "")
-                    .Trim();
+                cleaned = cleaned.Replace("```json", "").Replace("```", "").Trim();
             }
 
             using var doc = JsonDocument.Parse(cleaned);
@@ -153,16 +148,19 @@ public sealed class ChangeClassifierService : IChangeClassifierService
                 var classification = element.GetProperty("classification").GetString();
                 var reasoning = element.GetProperty("reasoning").GetString();
 
+                // Include plavalova code in the classification string
+                var plavalova = element.TryGetProperty("plavalova_code", out var pc) ? pc.GetString() : null;
+                var fullClassification = plavalova != null
+                    ? $"{classification}|{plavalova}"
+                    : classification ?? "";
+
                 if (name != null && classification != null)
                 {
-                    result[name] = (classification, reasoning ?? "");
+                    result[name] = (fullClassification, reasoning ?? "");
                 }
             }
         }
-        catch (JsonException)
-        {
-            // If parsing fails, return empty — the batch gets skipped and logged
-        }
+        catch (JsonException) { }
 
         return result;
     }
@@ -172,10 +170,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         var requestBody = new
         {
             model = _model,
-            messages = new[]
-            {
-                new { role = "user", content = prompt }
-            },
+            messages = new[] { new { role = "user", content = prompt } },
             max_tokens = 16000,
             temperature = 0.1
         };

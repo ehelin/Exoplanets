@@ -13,53 +13,135 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         _db = db;
     }
 
-    // ── Phase 1 (still used) ───────────────────────────────
+    // ── Planet reads ───────────────────────────────────────
 
-    public async Task<HashSet<(string PlanetName, string HostStar)>> GetExistingKeysAsync()
+    public async Task<List<PlanetEntity>> GetAllPlanetsAsync()
     {
-        var keys = await _db.Exoplanets
-            .AsNoTracking()
-            .Select(e => new { e.PlanetName, e.HostStar })
+        return await _db.Planets.AsNoTracking().ToListAsync();
+    }
+
+    public async Task<HashSet<string>> GetExistingPlanetNamesAsync()
+    {
+        var names = await _db.Planets.AsNoTracking()
+            .Select(p => p.PlanetName)
             .ToListAsync();
-
-        return keys
-            .Select(k => (k.PlanetName, k.HostStar))
-            .ToHashSet();
+        return names.ToHashSet();
     }
 
-    public async Task<int> InsertNewAsync(List<ExoplanetEntity> newEntities)
+    // ── Solar System / Star / Planet writes ─────────────────
+
+    public async Task<SolarSystemEntity> GetOrCreateSolarSystemAsync(
+        string hostStar, double? distanceParsecs, int? numStars, int? numPlanets)
     {
-        if (newEntities.Count == 0)
-            return 0;
+        // Use host star name as system identifier
+        var star = await _db.Stars.Include(s => s.SolarSystem)
+            .FirstOrDefaultAsync(s => s.Name == hostStar);
 
-        _db.Exoplanets.AddRange(newEntities);
-        return await _db.SaveChangesAsync();
-    }
+        if (star != null)
+            return star.SolarSystem;
 
-    // ── Phase 2: Full record loading for diff ──────────────
-
-    public async Task<List<ExoplanetEntity>> GetAllExistingAsync()
-    {
-        return await _db.Exoplanets
-            .AsNoTracking()
-            .ToListAsync();
-    }
-
-    public async Task UpdateExistingAsync(List<ExoplanetEntity> updatedEntities)
-    {
-        if (updatedEntities.Count == 0)
-            return;
-
-        foreach (var entity in updatedEntities)
+        var now = DateTimeOffset.UtcNow;
+        var system = new SolarSystemEntity
         {
-            _db.Exoplanets.Attach(entity);
-            _db.Entry(entity).State = EntityState.Modified;
-        }
+            DistanceParsecs = distanceParsecs,
+            NumStars = numStars,
+            NumPlanets = numPlanets,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        };
 
+        _db.SolarSystems.Add(system);
+        await _db.SaveChangesAsync();
+        return system;
+    }
+
+    public async Task<StarEntity> GetOrCreateStarAsync(
+        int solarSystemId, string name, double? tempK, double? radius, double? mass, string? spectralType)
+    {
+        var existing = await _db.Stars
+            .FirstOrDefaultAsync(s => s.Name == name);
+
+        if (existing != null)
+            return existing;
+
+        var now = DateTimeOffset.UtcNow;
+        var star = new StarEntity
+        {
+            SolarSystemId = solarSystemId,
+            Name = name,
+            TemperatureK = tempK,
+            RadiusSolar = radius,
+            MassSolar = mass,
+            SpectralType = spectralType,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        };
+
+        _db.Stars.Add(star);
+        await _db.SaveChangesAsync();
+        return star;
+    }
+
+    public async Task<PlanetEntity?> GetPlanetByNameAsync(string planetName)
+    {
+        return await _db.Planets.FirstOrDefaultAsync(p => p.PlanetName == planetName);
+    }
+
+    public async Task InsertPlanetAsync(PlanetEntity planet)
+    {
+        _db.Planets.Add(planet);
         await _db.SaveChangesAsync();
     }
 
-    // ── Phase 2: Evidence tables ───────────────────────────
+    public async Task UpdatePlanetAsync(PlanetEntity planet)
+    {
+        _db.Planets.Update(planet);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task LinkPlanetToStarAsync(int planetId, int starId)
+    {
+        var exists = await _db.PlanetStars
+            .AnyAsync(ps => ps.PlanetId == planetId && ps.StarId == starId);
+
+        if (!exists)
+        {
+            _db.PlanetStars.Add(new PlanetStarEntity { PlanetId = planetId, StarId = starId });
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    // ── Bulk insert for initial load performance ────────────
+
+    public async Task BulkInsertSolarSystemsAsync(List<SolarSystemEntity> systems)
+    {
+        if (systems.Count == 0) return;
+        _db.SolarSystems.AddRange(systems);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task BulkInsertStarsAsync(List<StarEntity> stars)
+    {
+        if (stars.Count == 0) return;
+        _db.Stars.AddRange(stars);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task BulkInsertPlanetsAsync(List<PlanetEntity> planets)
+    {
+        if (planets.Count == 0) return;
+        _db.Planets.AddRange(planets);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task BulkInsertPlanetStarsAsync(List<PlanetStarEntity> links)
+    {
+        if (links.Count == 0) return;
+        _db.PlanetStars.AddRange(links);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Evidence tables ────────────────────────────────────
 
     public async Task<IngestRunEntity> CreateIngestRunAsync(string source, string? sourceUrl, int rowsFetched)
     {
@@ -96,17 +178,14 @@ public sealed class ExoplanetRepository : IExoplanetRepository
 
     public async Task WriteChangeLogAsync(List<ChangeLogEntity> entries)
     {
-        if (entries.Count == 0)
-            return;
-
+        if (entries.Count == 0) return;
         _db.ChangeLogs.AddRange(entries);
         await _db.SaveChangesAsync();
     }
 
     public async Task<List<ChangeLogEntity>> GetChangeLogByRunAsync(int ingestRunId)
     {
-        return await _db.ChangeLogs
-            .AsNoTracking()
+        return await _db.ChangeLogs.AsNoTracking()
             .Where(c => c.IngestRunId == ingestRunId)
             .OrderBy(c => c.ChangeType)
             .ThenBy(c => c.PlanetName)
@@ -119,11 +198,24 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         await _db.SaveChangesAsync();
     }
 
-    // ── Classification: AI writes back to change_log and exoplanets ──
+    public async Task WriteEvalResultAsync(EvalResultEntity result)
+    {
+        _db.EvalResults.Add(result);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task WriteEvalResultsAsync(List<EvalResultEntity> results)
+    {
+        if (results.Count == 0) return;
+        _db.EvalResults.AddRange(results);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Classification ─────────────────────────────────────
 
     public async Task ApplyClassificationsAsync(
-    List<ChangeLogEntity> changes,
-    Dictionary<string, (string Classification, string Reasoning)> classifications)
+        List<ChangeLogEntity> changes,
+        Dictionary<string, (string Classification, string Reasoning)> classifications)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -132,8 +224,7 @@ public sealed class ExoplanetRepository : IExoplanetRepository
             if (!classifications.TryGetValue(change.PlanetName, out var result))
                 continue;
 
-            // Update exoplanets table with classification
-            var planet = await _db.Exoplanets
+            var planet = await _db.Planets
                 .FirstOrDefaultAsync(p => p.PlanetName == change.PlanetName);
 
             if (planet != null)
@@ -142,7 +233,6 @@ public sealed class ExoplanetRepository : IExoplanetRepository
                 planet.Classification = result.Classification;
                 planet.UpdatedUtc = now;
 
-                // Log the classification change in change_log — this is the AI's action
                 _db.ChangeLogs.Add(new ChangeLogEntity
                 {
                     IngestRunId = change.IngestRunId,
