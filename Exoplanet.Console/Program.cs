@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.Production.json", optional: false)
     .AddEnvironmentVariables()

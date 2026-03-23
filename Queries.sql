@@ -17,18 +17,24 @@ exoplanet.stars,
 exoplanet.solar_systems CASCADE;
 
 SELECT 
-    e.planet_name,
-    e.host_star,
-    e.discovery_year,
-    e.classification,
+    p.planet_name,
+    s.name AS host_star,
+    p.discovery_year,
+    p.planet_mass,
+    p.planet_radius,
+    p.equilibrium_temp,
+    p.classification,
+    p.plavalova_code,
     cl.change_type,
     cl.field_name,
     cl.old_value,
     cl.new_value,
     cl.ai_classification,
     cl.ai_reasoning
-FROM exoplanet.exoplanets e
-JOIN exoplanet.change_log cl ON cl.planet_name = e.planet_name
-WHERE e.classification IS NOT NULL
-ORDER BY e.planet_name, cl.detected_at
+FROM exoplanet.planets p
+JOIN exoplanet.planet_stars ps ON ps.planet_id = p.id
+JOIN exoplanet.stars s ON s.id = ps.star_id
+JOIN exoplanet.change_log cl ON cl.planet_name = p.planet_name
+WHERE p.classification IS NOT NULL
+ORDER BY p.planet_name, cl.detected_at
 LIMIT 30;
