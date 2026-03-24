@@ -183,3 +183,18 @@ CREATE TABLE exoplanet.eval_result (
 ALTER TABLE exoplanet.ingest_run ADD COLUMN source_url TEXT;
 ALTER TABLE exoplanet.ingest_run ADD COLUMN rows_unchanged INT NOT NULL DEFAULT 0;
 ALTER TABLE exoplanet.ingest_run ADD COLUMN error_message TEXT;
+
+ALTER TABLE exoplanet.solar_systems ALTER COLUMN created_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.solar_systems ALTER COLUMN updated_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.stars ALTER COLUMN created_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.stars ALTER COLUMN updated_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.planets ALTER COLUMN created_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.planets ALTER COLUMN updated_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.atmospheres ALTER COLUMN created_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.atmospheres ALTER COLUMN updated_utc TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.ingest_run ALTER COLUMN run_timestamp TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.ingest_run ALTER COLUMN completed_at TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.change_log ALTER COLUMN detected_at TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.change_report ALTER COLUMN generated_at TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.pipeline_log ALTER COLUMN logged_at TYPE TIMESTAMPTZ;
+ALTER TABLE exoplanet.eval_result ALTER COLUMN evaluated_at TYPE TIMESTAMPTZ;

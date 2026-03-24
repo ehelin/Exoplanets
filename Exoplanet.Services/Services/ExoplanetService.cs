@@ -1,6 +1,7 @@
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
 using Exoplanet.Shared.Models;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Shared.Interfaces;
 using Shared.Models;
 
@@ -12,6 +13,7 @@ public sealed class ExoplanetService : IExoplanetService
     private readonly IExoplanetRepository _repo;
     private readonly IChangeReportService _reportService;
     private readonly IChangeClassifierService _classifier;
+    private readonly IEvalRunner _evalRunner;
     private readonly IPipelineLogger _plog;
 
     private const string SourceName = "NASA_EXOPLANET_ARCHIVE";
@@ -22,12 +24,14 @@ public sealed class ExoplanetService : IExoplanetService
         IExoplanetRepository repo,
         IChangeReportService reportService,
         IChangeClassifierService classifier,
+        IEvalRunner evalRunner,
         IPipelineLogger plog)
     {
         _api = api;
         _repo = repo;
         _reportService = reportService;
         _classifier = classifier;
+        _evalRunner = evalRunner;
         _plog = plog;
     }
 
@@ -38,6 +42,8 @@ public sealed class ExoplanetService : IExoplanetService
         // Step 1: Fetch from source
         var incoming = await _api.FetchExoplanetsAsync();
         await _plog.Info($"Fetched {incoming.Count} records from NASA.");
+
+        incoming = incoming.Take(10).ToList();
 
         // Step 2: Record that this run happened
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
@@ -181,6 +187,17 @@ public sealed class ExoplanetService : IExoplanetService
                 {
                     await _plog.Warning($"AI report failed: {ex.Message}", run.Id);
                 }
+            }
+
+            // Step 8: Evaluate AI performance
+            try
+            {
+                await _evalRunner.EvaluateAsync(run.Id);
+                await _plog.Info("AI evaluation complete.", run.Id);
+            }
+            catch (Exception ex)
+            {
+                await _plog.Warning($"AI evaluation failed: {ex.Message}", run.Id);
             }
 
             await _plog.Info("Pipeline complete.", run.Id);

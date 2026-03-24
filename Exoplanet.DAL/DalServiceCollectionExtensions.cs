@@ -7,6 +7,8 @@ public static class DalServiceCollectionExtensions
 {
     public static IServiceCollection AddExoplanetDal(this IServiceCollection services, string connectionString)
     {
+        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
         services.AddDbContext<ExoplanetDbContext>(opt =>
         {
             opt.UseNpgsql(connectionString, npg => npg.EnableRetryOnFailure(5));

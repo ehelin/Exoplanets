@@ -25,6 +25,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddScoped<IPipelineLogger, PipelineLogger>();
         services.AddScoped<IExoplanetService, ExoplanetService>();
         services.AddScoped<IExoplanetRepository, ExoplanetRepository>();
+        services.AddScoped<IEvalRunner, EvalRunner>();
         return services;
     }
 }
