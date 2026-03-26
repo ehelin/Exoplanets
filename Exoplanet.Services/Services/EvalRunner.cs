@@ -85,9 +85,6 @@ public sealed class EvalRunner : IEvalRunner
                     PassFail = componentScore >= 75 ? "PASS" : "FAIL",
                     EvaluatedAt = DateTimeOffset.UtcNow
                 });
-
-                //planet.PlavalovaCode = expectedCode;
-                //await _repo.UpdatePlanetAsync(planet);
             }
             else
             {
@@ -194,7 +191,7 @@ public sealed class EvalRunner : IEvalRunner
         int score = 0;
         for (int i = 0; i < 4; i++)
         {
-            if (expected[i] == actual[i])
+            if (char.ToUpper(expected[i]) == char.ToUpper(actual[i]))
                 score += 25;
         }
 
