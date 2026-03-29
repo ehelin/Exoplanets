@@ -198,3 +198,8 @@ ALTER TABLE exoplanet.change_log ALTER COLUMN detected_at TYPE TIMESTAMPTZ;
 ALTER TABLE exoplanet.change_report ALTER COLUMN generated_at TYPE TIMESTAMPTZ;
 ALTER TABLE exoplanet.pipeline_log ALTER COLUMN logged_at TYPE TIMESTAMPTZ;
 ALTER TABLE exoplanet.eval_result ALTER COLUMN evaluated_at TYPE TIMESTAMPTZ;
+
+ALTER TABLE exoplanet.planets ALTER COLUMN orbital_period TYPE NUMERIC(20, 6);
+ALTER TABLE exoplanet.planets ALTER COLUMN insolation_flux TYPE NUMERIC(20, 6);
+ALTER TABLE exoplanet.planets ALTER COLUMN planet_mass TYPE NUMERIC(20, 6);
+ALTER TABLE exoplanet.planets ALTER COLUMN equilibrium_temp TYPE NUMERIC(20, 6);

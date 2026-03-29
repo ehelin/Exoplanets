@@ -14,7 +14,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
     private readonly string _model;
-    private const int BatchSize = 500;
+    private const int BatchSize = 50;
 
     public ChangeClassifierService(
         HttpClient http,

@@ -148,6 +148,8 @@ public sealed class ExoplanetService : IExoplanetService
             }
 
             // Step 4: Write evidence
+            Console.WriteLine($"DEBUG: changes.Count = {changes.Count}");
+
             await _repo.WriteChangeLogAsync(changes);
             await _plog.Info($"Diff: {newCount} new, {updatedCount} updated, {deletedCount} deleted, {unchangedCount} unchanged.", run.Id);
 
