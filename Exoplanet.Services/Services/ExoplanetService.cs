@@ -43,8 +43,6 @@ public sealed class ExoplanetService : IExoplanetService
         var incoming = await _api.FetchExoplanetsAsync();
         await _plog.Info($"Fetched {incoming.Count} records from NASA.");
 
-        incoming = incoming.Take(1).ToList();
-
         // Step 2: Record that this run happened
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
         await _plog.Info($"Ingest run {run.Id} created.", run.Id);
