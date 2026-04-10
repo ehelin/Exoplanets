@@ -368,3 +368,5 @@ FodyWeavers.xsd
 /Exoplanet.Functions/local.settings.json
 /Exoplanet.Console/appsettings.Development.json
 /Exoplanet.Console/appsettings.Production.json
+/Tests/appsettings.Development.json
+/Tests/appsettings.Production.json
