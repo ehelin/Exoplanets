@@ -34,6 +34,10 @@ namespace Shared.Interfaces
         Task WriteEvalResultAsync(EvalResultEntity result);
         Task WriteEvalResultsAsync(List<EvalResultEntity> results);
 
+        // Drift detection
+        Task<double?> GetAverageEvalScoreAsync(int ingestRunId, string evalType);
+        Task<List<int>> GetRecentCompletedRunIdsAsync(int excludeRunId, int count);
+
         // Classification
         Task ApplyClassificationsAsync(
             List<ChangeLogEntity> changes,

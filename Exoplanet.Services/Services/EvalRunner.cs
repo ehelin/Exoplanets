@@ -7,12 +7,15 @@ namespace Exoplanet.Services;
 public interface IEvalRunner
 {
     Task EvaluateAsync(int ingestRunId);
+    Task CheckForDriftAsync(int ingestRunId);
 }
 
 public sealed class EvalRunner : IEvalRunner
 {
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
+    private const double DriftThresholdPercent = 10.0;
+    private const int RollingWindowSize = 5;
 
     public EvalRunner(IExoplanetRepository repo, IPipelineLogger plog)
     {
@@ -116,6 +119,56 @@ public sealed class EvalRunner : IEvalRunner
             $"Eval complete. Classification: {classificationPass}/{classificationTotal} pass. " +
             $"Plavalova: {plavalovaPass}/{plavalovaTotal} pass, avg score {avgPlavalovaScore:F0}%.",
             ingestRunId);
+    }
+
+    public async Task CheckForDriftAsync(int ingestRunId)
+    {
+        var currentAvg = await _repo.GetAverageEvalScoreAsync(ingestRunId, "PLAVALOVA");
+        if (currentAvg == null)
+        {
+            await _plog.Info("Drift check: no eval scores for this run.", ingestRunId);
+            return;
+        }
+
+        var recentRunIds = await _repo.GetRecentCompletedRunIdsAsync(ingestRunId, RollingWindowSize);
+        if (recentRunIds.Count == 0)
+        {
+            await _plog.Info($"Drift check: first run, baseline score {currentAvg:F1}%.", ingestRunId);
+            return;
+        }
+
+        var recentScores = new List<double>();
+        foreach (var runId in recentRunIds)
+        {
+            var avg = await _repo.GetAverageEvalScoreAsync(runId, "PLAVALOVA");
+            if (avg.HasValue)
+                recentScores.Add(avg.Value);
+        }
+
+        if (recentScores.Count == 0)
+        {
+            await _plog.Info($"Drift check: no prior scores to compare. Current: {currentAvg:F1}%.", ingestRunId);
+            return;
+        }
+
+        var rollingAvg = recentScores.Average();
+        var drop = rollingAvg - currentAvg.Value;
+
+        if (drop > DriftThresholdPercent)
+        {
+            await _plog.Warning(
+                $"DRIFT DETECTED: Plavalova score dropped {drop:F1}% " +
+                $"(rolling avg {rollingAvg:F1}% -> current {currentAvg:F1}%). " +
+                $"Threshold: {DriftThresholdPercent}%.",
+                ingestRunId);
+        }
+        else
+        {
+            await _plog.Info(
+                $"Drift check: stable (rolling avg {rollingAvg:F1}% -> current {currentAvg:F1}%, " +
+                $"delta {drop:F1}%, threshold {DriftThresholdPercent}%).",
+                ingestRunId);
+        }
     }
 
     private static string ComputeExpectedDataQuality(PlanetEntity p)

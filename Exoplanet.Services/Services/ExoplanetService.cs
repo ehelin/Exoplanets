@@ -1,7 +1,6 @@
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
 using Exoplanet.Shared.Models;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Shared.Interfaces;
 using Shared.Models;
 
@@ -39,166 +38,28 @@ public sealed class ExoplanetService : IExoplanetService
     {
         await _plog.Info("Pipeline starting.");
 
-        // Step 1: Fetch from source
-        var incoming = await _api.FetchExoplanetsAsync();
-        await _plog.Info($"Fetched {incoming.Count} records from NASA.");
-
-        // Step 2: Record that this run happened
+        var incoming = await FetchFromSourceAsync();
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
         await _plog.Info($"Ingest run {run.Id} created.", run.Id);
 
         try
         {
-            // Step 3: Load existing planet names for diff
-            var existingNames = await _repo.GetExistingPlanetNamesAsync();
-            var existingPlanets = await _repo.GetAllPlanetsAsync();
-            var existingByName = existingPlanets.ToDictionary(p => p.PlanetName, p => p);
-
-            // Normalize incoming
-            var normalized = incoming
-                .Where(x => !string.IsNullOrWhiteSpace(x.PlanetName) && !string.IsNullOrWhiteSpace(x.HostStar))
-                .DistinctBy(x => x.PlanetName!.Trim())
-                .ToList();
-
-            var changes = new List<ChangeLogEntity>();
-            var now = DateTimeOffset.UtcNow;
-            int newCount = 0, updatedCount = 0, unchangedCount = 0;
-
-            foreach (var inc in normalized)
-            {
-                var planetName = inc.PlanetName!.Trim();
-                var hostStar = inc.HostStar!.Trim();
-
-                // Get or create solar system and star
-                var system = await _repo.GetOrCreateSolarSystemAsync(
-                    hostStar, inc.DistanceParsecs, inc.NumStars, inc.NumPlanets);
-
-                var star = await _repo.GetOrCreateStarAsync(
-                    system.Id, hostStar,
-                    inc.StarTemperature, inc.StarRadius, inc.StarMass, inc.StarSpectralType);
-
-                if (!existingByName.TryGetValue(planetName, out var existing))
-                {
-                    // INSERT
-                    changes.Add(new ChangeLogEntity
-                    {
-                        IngestRunId = run.Id,
-                        PlanetName = planetName,
-                        ChangeType = "INSERT",
-                        DetectedAt = now
-                    });
-
-                    var planet = new PlanetEntity
-                    {
-                        SolarSystemId = system.Id,
-                        PlanetName = planetName,
-                        DiscoveryYear = inc.DiscoveryYear,
-                        DiscoveryMethod = inc.DiscoveryMethod,
-                        PlanetRadius = inc.PlanetRadius,
-                        PlanetMass = inc.PlanetMass,
-                        OrbitalPeriod = inc.OrbitalPeriod,
-                        SemiMajorAxis = inc.SemiMajorAxis,
-                        Eccentricity = inc.Eccentricity,
-                        EquilibriumTemp = inc.EquilibriumTemp,
-                        PlanetDensity = inc.PlanetDensity,
-                        InsolationFlux = inc.InsolationFlux,
-                        CreatedUtc = now,
-                        UpdatedUtc = now
-                    };
-
-                    await _repo.InsertPlanetAsync(planet);
-                    await _repo.LinkPlanetToStarAsync(planet.Id, star.Id);
-                    newCount++;
-                }
-                else
-                {
-                    // UPDATE check — field-level diff
-                    var fieldChanges = CompareFields(inc, existing, run.Id, now);
-
-                    if (fieldChanges.Count > 0)
-                    {
-                        changes.AddRange(fieldChanges);
-                        ApplyUpdates(inc, existing, now);
-                        await _repo.UpdatePlanetAsync(existing);
-                        updatedCount++;
-                    }
-                    else
-                    {
-                        unchangedCount++;
-                    }
-                }
-            }
-
-            // DELETE detection
-            var incomingNames = normalized.Select(x => x.PlanetName!.Trim()).ToHashSet();
-            var deletedCount = 0;
-            foreach (var ex in existingPlanets)
-            {
-                if (!incomingNames.Contains(ex.PlanetName))
-                {
-                    changes.Add(new ChangeLogEntity
-                    {
-                        IngestRunId = run.Id,
-                        PlanetName = ex.PlanetName,
-                        ChangeType = "DELETE",
-                        DetectedAt = now
-                    });
-                    deletedCount++;
-                }
-            }
-
-            // Step 4: Write evidence
-            Console.WriteLine($"DEBUG: changes.Count = {changes.Count}");
+            var (changes, newCount, updatedCount, deletedCount, unchangedCount) =
+                await IngestAndDiffAsync(incoming, run.Id);
 
             await _repo.WriteChangeLogAsync(changes);
             await _plog.Info($"Diff: {newCount} new, {updatedCount} updated, {deletedCount} deleted, {unchangedCount} unchanged.", run.Id);
 
-            // Step 5: Mark run complete
-            run.RowsNew = newCount;
-            run.RowsUpdated = updatedCount;
-            run.RowsDeleted = deletedCount;
-            run.RowsUnchanged = unchangedCount;
-            run.RowsFetched = incoming.Count;
-            await _repo.CompleteIngestRunAsync(run);
+            await CompleteRunAsync(run, incoming.Count, newCount, updatedCount, deletedCount, unchangedCount);
 
-            // Step 6: AI classifies
             if (changes.Count > 0)
             {
-                try
-                {
-                    await _classifier.ClassifyAsync(run.Id);
-                    await _plog.Info("AI classification complete.", run.Id);
-                }
-                catch (Exception ex)
-                {
-                    await _plog.Warning($"AI classification failed: {ex.Message}", run.Id);
-                }
+                await RunClassifierAsync(run.Id);
+                await RunReportAsync(run.Id);
             }
 
-            // Step 7: AI generates summary report
-            if (changes.Count > 0)
-            {
-                try
-                {
-                    await _reportService.GenerateReportAsync(run.Id);
-                    await _plog.Info("AI report generated.", run.Id);
-                }
-                catch (Exception ex)
-                {
-                    await _plog.Warning($"AI report failed: {ex.Message}", run.Id);
-                }
-            }
-
-            // Step 8: Evaluate AI performance
-            try
-            {
-                await _evalRunner.EvaluateAsync(run.Id);
-                await _plog.Info("AI evaluation complete.", run.Id);
-            }
-            catch (Exception ex)
-            {
-                await _plog.Warning($"AI evaluation failed: {ex.Message}", run.Id);
-            }
+            await RunEvalAsync(run.Id);
+            await RunDriftCheckAsync(run.Id);
 
             await _plog.Info("Pipeline complete.", run.Id);
 
@@ -217,6 +78,171 @@ public sealed class ExoplanetService : IExoplanetService
             await _plog.Error($"Pipeline failed: {ex.Message}", run.Id, ex);
             await _repo.FailIngestRunAsync(run, ex.Message);
             throw;
+        }
+    }
+
+    private async Task<List<ExoPlanet>> FetchFromSourceAsync()
+    {
+        var incoming = await _api.FetchExoplanetsAsync();
+        await _plog.Info($"Fetched {incoming.Count} records from NASA.");
+        return incoming;
+    }
+
+    private async Task<(List<ChangeLogEntity> changes, int newCount, int updatedCount, int deletedCount, int unchangedCount)>
+        IngestAndDiffAsync(List<ExoPlanet> incoming, int runId)
+    {
+        var existingPlanets = await _repo.GetAllPlanetsAsync();
+        var existingByName = existingPlanets.ToDictionary(p => p.PlanetName, p => p);
+
+        var normalized = incoming
+            .Where(x => !string.IsNullOrWhiteSpace(x.PlanetName) && !string.IsNullOrWhiteSpace(x.HostStar))
+            .DistinctBy(x => x.PlanetName!.Trim())
+            .ToList();
+
+        var changes = new List<ChangeLogEntity>();
+        var now = DateTimeOffset.UtcNow;
+        int newCount = 0, updatedCount = 0, unchangedCount = 0;
+
+        foreach (var inc in normalized)
+        {
+            var planetName = inc.PlanetName!.Trim();
+            var hostStar = inc.HostStar!.Trim();
+
+            var system = await _repo.GetOrCreateSolarSystemAsync(
+                hostStar, inc.DistanceParsecs, inc.NumStars, inc.NumPlanets);
+
+            var star = await _repo.GetOrCreateStarAsync(
+                system.Id, hostStar,
+                inc.StarTemperature, inc.StarRadius, inc.StarMass, inc.StarSpectralType);
+
+            if (!existingByName.TryGetValue(planetName, out var existing))
+            {
+                changes.Add(new ChangeLogEntity
+                {
+                    IngestRunId = runId,
+                    PlanetName = planetName,
+                    ChangeType = "INSERT",
+                    DetectedAt = now
+                });
+
+                var planet = new PlanetEntity
+                {
+                    SolarSystemId = system.Id,
+                    PlanetName = planetName,
+                    DiscoveryYear = inc.DiscoveryYear,
+                    DiscoveryMethod = inc.DiscoveryMethod,
+                    PlanetRadius = inc.PlanetRadius,
+                    PlanetMass = inc.PlanetMass,
+                    OrbitalPeriod = inc.OrbitalPeriod,
+                    SemiMajorAxis = inc.SemiMajorAxis,
+                    Eccentricity = inc.Eccentricity,
+                    EquilibriumTemp = inc.EquilibriumTemp,
+                    PlanetDensity = inc.PlanetDensity,
+                    InsolationFlux = inc.InsolationFlux,
+                    CreatedUtc = now,
+                    UpdatedUtc = now
+                };
+
+                await _repo.InsertPlanetAsync(planet);
+                await _repo.LinkPlanetToStarAsync(planet.Id, star.Id);
+                newCount++;
+            }
+            else
+            {
+                var fieldChanges = CompareFields(inc, existing, runId, now);
+
+                if (fieldChanges.Count > 0)
+                {
+                    changes.AddRange(fieldChanges);
+                    ApplyUpdates(inc, existing, now);
+                    await _repo.UpdatePlanetAsync(existing);
+                    updatedCount++;
+                }
+                else
+                {
+                    unchangedCount++;
+                }
+            }
+        }
+
+        var incomingNames = normalized.Select(x => x.PlanetName!.Trim()).ToHashSet();
+        var deletedCount = 0;
+        foreach (var ex in existingPlanets)
+        {
+            if (!incomingNames.Contains(ex.PlanetName))
+            {
+                changes.Add(new ChangeLogEntity
+                {
+                    IngestRunId = runId,
+                    PlanetName = ex.PlanetName,
+                    ChangeType = "DELETE",
+                    DetectedAt = now
+                });
+                deletedCount++;
+            }
+        }
+
+        return (changes, newCount, updatedCount, deletedCount, unchangedCount);
+    }
+
+    private async Task CompleteRunAsync(IngestRunEntity run, int fetched, int newCount, int updatedCount, int deletedCount, int unchangedCount)
+    {
+        run.RowsNew = newCount;
+        run.RowsUpdated = updatedCount;
+        run.RowsDeleted = deletedCount;
+        run.RowsUnchanged = unchangedCount;
+        run.RowsFetched = fetched;
+        await _repo.CompleteIngestRunAsync(run);
+    }
+
+    private async Task RunClassifierAsync(int runId)
+    {
+        try
+        {
+            await _classifier.ClassifyAsync(runId);
+            await _plog.Info("AI classification complete.", runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"AI classification failed: {ex.Message}", runId);
+        }
+    }
+
+    private async Task RunReportAsync(int runId)
+    {
+        try
+        {
+            await _reportService.GenerateReportAsync(runId);
+            await _plog.Info("AI report generated.", runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"AI report failed: {ex.Message}", runId);
+        }
+    }
+
+    private async Task RunEvalAsync(int runId)
+    {
+        try
+        {
+            await _evalRunner.EvaluateAsync(runId);
+            await _plog.Info("AI evaluation complete.", runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"AI evaluation failed: {ex.Message}", runId);
+        }
+    }
+
+    private async Task RunDriftCheckAsync(int runId)
+    {
+        try
+        {
+            await _evalRunner.CheckForDriftAsync(runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"Drift check failed: {ex.Message}", runId);
         }
     }
 

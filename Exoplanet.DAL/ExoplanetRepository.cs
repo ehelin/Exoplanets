@@ -33,7 +33,6 @@ public sealed class ExoplanetRepository : IExoplanetRepository
     public async Task<SolarSystemEntity> GetOrCreateSolarSystemAsync(
         string hostStar, double? distanceParsecs, int? numStars, int? numPlanets)
     {
-        // Use host star name as system identifier
         var star = await _db.Stars.Include(s => s.SolarSystem)
             .FirstOrDefaultAsync(s => s.Name == hostStar);
 
@@ -209,6 +208,29 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         if (results.Count == 0) return;
         _db.EvalResults.AddRange(results);
         await _db.SaveChangesAsync();
+    }
+
+    // ── Drift detection ────────────────────────────────────
+
+    public async Task<double?> GetAverageEvalScoreAsync(int ingestRunId, string evalType)
+    {
+        var scores = await _db.EvalResults.AsNoTracking()
+            .Where(e => e.IngestRunId == ingestRunId && e.EvalType == evalType && e.Score.HasValue)
+            .Select(e => e.Score!.Value)
+            .ToListAsync();
+
+        if (scores.Count == 0) return null;
+        return scores.Average();
+    }
+
+    public async Task<List<int>> GetRecentCompletedRunIdsAsync(int excludeRunId, int count)
+    {
+        return await _db.IngestRuns.AsNoTracking()
+            .Where(r => r.Status == "COMPLETED" && r.Id != excludeRunId)
+            .OrderByDescending(r => r.Id)
+            .Take(count)
+            .Select(r => r.Id)
+            .ToListAsync();
     }
 
     // ── Classification ─────────────────────────────────────
