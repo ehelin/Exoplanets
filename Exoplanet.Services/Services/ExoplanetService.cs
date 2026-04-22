@@ -60,6 +60,7 @@ public sealed class ExoplanetService : IExoplanetService
 
             await RunEvalAsync(run.Id);
             await RunDriftCheckAsync(run.Id);
+            await RunLlmJudgeAsync(run.Id);
 
             await _plog.Info("Pipeline complete.", run.Id);
 
@@ -78,6 +79,18 @@ public sealed class ExoplanetService : IExoplanetService
             await _plog.Error($"Pipeline failed: {ex.Message}", run.Id, ex);
             await _repo.FailIngestRunAsync(run, ex.Message);
             throw;
+        }
+    }
+    private async Task RunLlmJudgeAsync(int runId)
+    {
+        try
+        {
+            await _evalRunner.RunLlmJudgeAsync(runId);
+            await _plog.Info("LLM Judge evaluation complete.", runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"LLM Judge evaluation failed: {ex.Message}", runId);
         }
     }
 

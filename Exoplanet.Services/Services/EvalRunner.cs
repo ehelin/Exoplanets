@@ -1,26 +1,224 @@
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
+using Microsoft.Extensions.Configuration;
 using Shared.Interfaces;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 namespace Exoplanet.Services;
-
-public interface IEvalRunner
-{
-    Task EvaluateAsync(int ingestRunId);
-    Task CheckForDriftAsync(int ingestRunId);
-}
 
 public sealed class EvalRunner : IEvalRunner
 {
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
+    private readonly HttpClient _http;           
+    private readonly string _model;              
     private const double DriftThresholdPercent = 10.0;
     private const int RollingWindowSize = 5;
+    private const int JudgeBatchSize = 50;       
 
-    public EvalRunner(IExoplanetRepository repo, IPipelineLogger plog)
+    public EvalRunner(IExoplanetRepository repo, IPipelineLogger plog, HttpClient http, IConfiguration config)
     {
         _repo = repo;
         _plog = plog;
+        _http = http;
+        _model = config["OpenAI:Model"] ?? "gpt-4o-mini";
+
+        var apiKey = config["OpenAI:ApiKey"];
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+    }
+
+    public async Task RunLlmJudgeAsync(int ingestRunId)
+    {
+        var planets = await _repo.GetAllPlanetsAsync();
+
+        var changes = await _repo.GetChangeLogByRunAsync(ingestRunId);
+        var classifiedThisRun = changes
+            .Where(c => c.FieldName == "classification")
+            .Select(c => c.PlanetName)
+            .ToHashSet();
+
+        var classifiedPlanets = planets
+            .Where(p => p.Classification != null && classifiedThisRun.Contains(p.PlanetName))
+            .ToList();
+
+        if (classifiedPlanets.Count == 0)
+        {
+            await _plog.Info("LLM Judge: no classified planets to review.", ingestRunId);
+            return;
+        }
+
+        await _plog.Info($"LLM Judge: reviewing {classifiedPlanets.Count} planets in batches of {JudgeBatchSize}.", ingestRunId);
+
+        var batches = classifiedPlanets
+            .Select((p, i) => new { Planet = p, Index = i })
+            .GroupBy(x => x.Index / JudgeBatchSize)
+            .Select(g => g.Select(x => x.Planet).ToList())
+            .ToList();
+
+        var results = new List<EvalResultEntity>();
+        int batchNum = 0;
+
+        foreach (var batch in batches)
+        {
+            batchNum++;
+            await _plog.Info($"LLM Judge: batch {batchNum}/{batches.Count} ({batch.Count} planets).", ingestRunId);
+
+            try
+            {
+                var prompt = BuildJudgePrompt(batch);
+                var (responseText, tokensUsed) = await CallOpenAiAsync(prompt);
+                var judgments = ParseJudgments(responseText);
+
+                foreach (var planet in batch)
+                {
+                    if (judgments.TryGetValue(planet.PlanetName, out var judgment))
+                    {
+                        results.Add(new EvalResultEntity
+                        {
+                            IngestRunId = ingestRunId,
+                            EvalType = "LLM_JUDGE",
+                            PlanetName = planet.PlanetName,
+                            ExpectedValue = null,
+                            ActualValue = $"score={judgment.Score}|{judgment.Reasoning}",
+                            Score = judgment.Score * 10,
+                            Dimension = "reasoning",
+                            PassFail = judgment.Score >= 7 ? "PASS" : "FAIL",
+                            EvaluatedAt = DateTimeOffset.UtcNow
+                        });
+                    }
+                }
+
+                await _plog.Info($"LLM Judge: batch {batchNum} complete. Tokens: {tokensUsed}.", ingestRunId);
+            }
+            catch (Exception ex)
+            {
+                await _plog.Warning($"LLM Judge: batch {batchNum} failed: {ex.Message}", ingestRunId);
+            }
+        }
+
+        await _repo.WriteEvalResultsAsync(results);
+
+        var passCount = results.Count(r => r.PassFail == "PASS");
+        var avgScore = results.Where(r => r.Score.HasValue)
+            .Select(r => r.Score!.Value).DefaultIfEmpty(0).Average();
+
+        await _plog.Info(
+            $"LLM Judge complete. {passCount}/{results.Count} pass, avg score {avgScore:F0}%.",
+            ingestRunId);
+    }
+
+    private static string BuildJudgePrompt(List<PlanetEntity> batch)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("You are an independent reviewer of exoplanet classifications.");
+        sb.AppendLine("Another AI classified each planet below with a data quality label and a Plavalova code.");
+        sb.AppendLine("Your job: review whether the classification makes sense given the raw data.");
+        sb.AppendLine();
+        sb.AppendLine("For each planet, score the classification from 1 to 10:");
+        sb.AppendLine("  10 = perfect, classification and code match the data exactly");
+        sb.AppendLine("  7-9 = reasonable, minor issues");
+        sb.AppendLine("  4-6 = questionable, some components seem wrong");
+        sb.AppendLine("  1-3 = clearly wrong, classification doesn't match the data");
+        sb.AppendLine();
+        sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
+        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"score\": N, \"reasoning\": \"...\"}");
+        sb.AppendLine("Keep reasoning to one sentence max.");
+        sb.AppendLine();
+        sb.AppendLine("--- PLANETS ---");
+
+        foreach (var p in batch)
+        {
+            var parts = p.Classification?.Split('|') ?? [];
+            var dataQuality = parts.Length > 0 ? parts[0] : "?";
+            var plavCode = parts.Length > 1 ? parts[1] : "?";
+
+            sb.Append($"name={p.PlanetName}");
+            sb.Append($", classification={dataQuality}");
+            sb.Append($", plavalova_code={plavCode}");
+            sb.Append($", mass_earth={p.PlanetMass?.ToString("F2") ?? "?"}");
+            sb.Append($", radius_earth={p.PlanetRadius?.ToString("F2") ?? "?"}");
+            sb.Append($", period_days={p.OrbitalPeriod?.ToString("F2") ?? "?"}");
+            sb.Append($", ecc={p.Eccentricity?.ToString("F3") ?? "?"}");
+            sb.Append($", temp_k={p.EquilibriumTemp?.ToString("F0") ?? "?"}");
+            sb.Append($", density={p.PlanetDensity?.ToString("F2") ?? "?"}");
+            sb.Append($", disc_year={p.DiscoveryYear?.ToString() ?? "?"}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("--- END PLANETS ---");
+        return sb.ToString();
+    }
+
+    private static Dictionary<string, (int Score, string Reasoning)> ParseJudgments(string responseText)
+    {
+        var result = new Dictionary<string, (int, string)>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var cleaned = responseText.Trim();
+            if (cleaned.StartsWith("```"))
+            {
+                cleaned = cleaned.Replace("```json", "").Replace("```", "").Trim();
+            }
+
+            using var doc = JsonDocument.Parse(cleaned);
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                var name = element.GetProperty("planet_name").GetString();
+                var score = element.GetProperty("score").GetInt32();
+                var reasoning = element.TryGetProperty("reasoning", out var r) ? r.GetString() ?? "" : "";
+
+                if (name != null)
+                {
+                    result[name] = (Math.Clamp(score, 1, 10), reasoning);
+                }
+            }
+        }
+        catch (JsonException) { }
+
+        return result;
+    }
+
+    private async Task<(string responseText, int? tokensUsed)> CallOpenAiAsync(string prompt)
+    {
+        var requestBody = new
+        {
+            model = _model,
+            messages = new[] { new { role = "user", content = prompt } },
+            max_tokens = 16000,
+            temperature = 0.1
+        };
+
+        var json = JsonSerializer.Serialize(requestBody);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        var response = await _http.PostAsync("https://api.openai.com/v1/chat/completions", content);
+        response.EnsureSuccessStatusCode();
+
+        var responseJson = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(responseJson);
+
+        var text = doc.RootElement
+            .GetProperty("choices")[0]
+            .GetProperty("message")
+            .GetProperty("content")
+            .GetString() ?? "";
+
+        int? tokensUsed = null;
+        if (doc.RootElement.TryGetProperty("usage", out var usage) &&
+            usage.TryGetProperty("total_tokens", out var tokens))
+        {
+            tokensUsed = tokens.GetInt32();
+        }
+
+        return (text, tokensUsed);
     }
 
     public async Task EvaluateAsync(int ingestRunId)
