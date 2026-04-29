@@ -162,6 +162,17 @@ CREATE TABLE exoplanet.pipeline_log (
     logged_at       TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE exoplanet.retrieval_log (
+    id                  SERIAL PRIMARY KEY,
+    ingest_run_id       INT REFERENCES exoplanet.ingest_run(id),
+    planet_name         VARCHAR(255) NOT NULL,
+    reference_id        INT NOT NULL,
+    reference_name      TEXT,
+    similarity_score    DOUBLE PRECISION,
+    was_referenced      BOOLEAN DEFAULT FALSE,
+    retrieved_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ------------------------------------------------------------
 -- eval_result
 -- How did the AI do?
