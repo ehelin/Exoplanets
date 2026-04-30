@@ -24,3 +24,5 @@ CREATE INDEX idx_reference_embedding
 -- Index for planet name lookups
 CREATE INDEX idx_reference_planet 
     ON exoplanet_reference (planet_name);
+
+ALTER TABLE exoplanet_reference ALTER COLUMN embedding TYPE VECTOR(1536);
