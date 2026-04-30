@@ -42,5 +42,8 @@ namespace Shared.Interfaces
         Task ApplyClassificationsAsync(
             List<ChangeLogEntity> changes,
             Dictionary<string, (string Classification, string Reasoning)> classifications);
+
+        // RAG
+        Task WriteRetrievalLogsAsync(List<RetrievalLogEntity> logs);
     }
 }

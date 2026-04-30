@@ -26,3 +26,4 @@ CREATE INDEX idx_reference_planet
     ON exoplanet_reference (planet_name);
 
 ALTER TABLE exoplanet_reference ALTER COLUMN embedding TYPE VECTOR(1536);
+ALTER TABLE exoplanet.planets ADD COLUMN scientific_note TEXT;

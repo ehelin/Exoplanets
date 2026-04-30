@@ -23,8 +23,7 @@ var host = new HostBuilder()
     {
         var cs = ctx.Configuration.GetConnectionString("DefaultConnection");
         cs ??= ctx.Configuration["POSTGRES_CONNECTION_STRING"];
-
-        services.AddExoplanetServices(cs);
+        services.AddExoplanetServices(cs, ctx.Configuration.GetConnectionString("VectorConnection"));
     })
     .Build();
 

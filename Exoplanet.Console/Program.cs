@@ -14,14 +14,20 @@ var config = new ConfigurationBuilder()
 var services = new ServiceCollection();
 services.AddSingleton<IConfiguration>(config);
 services.AddLogging(builder => builder.AddConsole());
-services.AddExoplanetServices(config.GetConnectionString("DefaultConnection") ?? "");
+services.AddExoplanetServices(
+    config.GetConnectionString("DefaultConnection") ?? "",
+    config.GetConnectionString("VectorConnection"));
 
 var provider = services.BuildServiceProvider();
-var svc = provider.GetRequiredService<IExoplanetService>();
+var ragService = provider.GetRequiredService<IRagIngestionService>();
+var exoPlanetService = provider.GetRequiredService<IExoplanetService>();
 var logger = provider.GetRequiredService<ILogger<Program>>();
 
 logger.LogInformation("Starting ExoplanetService...");
-var result = await svc.RunAsync();
+
+await ragService.IngestReferencesAsync();
+var result = await exoPlanetService.RunAsync();
+
 logger.LogInformation(
     "Done. Fetched={Fetched}, Inserted={Inserted}, Updated={Updated}, Skipped={Skipped}",
     result.Fetched, result.Inserted, result.Updated, result.Skipped);

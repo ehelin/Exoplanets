@@ -15,17 +15,21 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     private readonly IPipelineLogger _plog;
     private readonly string _model;
     private const int BatchSize = 50;
+    private readonly IRagRetrievalService _ragRetrievalService;
 
     public ChangeClassifierService(
         HttpClient http,
         IExoplanetRepository repo,
         IPipelineLogger plog,
-        IConfiguration config)
+        IConfiguration config,
+        IRagRetrievalService ragRetrievalService)
     {
         _http = http;
         _repo = repo;
         _plog = plog;
         _model = config["OpenAI:Model"] ?? "gpt-4o-mini";
+
+        _ragRetrievalService = ragRetrievalService;
 
         var apiKey = config["OpenAI:ApiKey"];
         if (!string.IsNullOrEmpty(apiKey))
@@ -64,7 +68,9 @@ public sealed class ChangeClassifierService : IChangeClassifierService
 
             try
             {
-                var prompt = BuildClassificationPrompt(batch, planetLookup);
+                //var prompt = BuildClassificationPrompt(batch, planetLookup);
+                var prompt = await BuildClassificationPromptAsync(batch, planetLookup, ingestRunId);
+
                 var (responseText, tokensUsed) = await CallOpenAiAsync(prompt);
                 var classifications = ParseClassifications(responseText);
 
@@ -81,22 +87,23 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         await _plog.Info("Classification complete.", ingestRunId);
     }
 
-    private static string BuildClassificationPrompt(
+    private async Task<string> BuildClassificationPromptAsync(
         List<ChangeLogEntity> batch,
-        Dictionary<string, PlanetEntity> planetLookup)
+        Dictionary<string, PlanetEntity> planetLookup,
+        int ingestRunId)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("You are an exoplanet classifier. For each planet below, provide TWO classifications:");
+        sb.AppendLine("You are an exoplanet classifier. For each planet below, provide THREE items:");
         sb.AppendLine();
         sb.AppendLine("1. DATA QUALITY classification:");
         sb.AppendLine("   - CONFIRMED: has discovery year (1992-2026), mass or radius, and orbital data");
         sb.AppendLine("   - CANDIDATE: missing key measurements (no mass, no radius, no orbital period)");
         sb.AppendLine("   - ANOMALY: data quality concern (discovery year outside range, suspicious values)");
         sb.AppendLine();
-        sb.AppendLine("2. PLAVALOVA CODE — EXACTLY 4 characters: [mass][temp][ecc][density].");
+        sb.AppendLine("2. PLAVALOVA CODE \u0097 EXACTLY 4 characters: [mass][temp][ecc][density].");
         sb.AppendLine();
-        sb.AppendLine("   MASS — look at mass_earth and apply STRICTLY:");
+        sb.AppendLine("   MASS \u0097 look at mass_earth and apply STRICTLY:");
         sb.AppendLine("     m = mass_earth < 0.1");
         sb.AppendLine("     e = mass_earth >= 0.1 AND mass_earth < 10.0");
         sb.AppendLine("     N = mass_earth >= 10.0 AND mass_earth < 100.0");
@@ -111,7 +118,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         sb.AppendLine("     mass_earth=85.8 -> N");
         sb.AppendLine("     mass_earth=318 -> J");
         sb.AppendLine();
-        sb.AppendLine("   TEMPERATURE — look at temp_k and apply STRICTLY:");
+        sb.AppendLine("   TEMPERATURE \u0097 look at temp_k and apply STRICTLY:");
         sb.AppendLine("     F = temp_k < 200");
         sb.AppendLine("     W = temp_k >= 200 AND temp_k < 450");
         sb.AppendLine("     G = temp_k >= 450 AND temp_k < 1000");
@@ -122,14 +129,14 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         sb.AppendLine("     temp_k=900 -> G");
         sb.AppendLine("     temp_k=1655 -> R");
         sb.AppendLine();
-        sb.AppendLine("   ECCENTRICITY — look at ecc value:");
+        sb.AppendLine("   ECCENTRICITY \u0097 look at ecc value:");
         sb.AppendLine("     0 = ecc < 0.1");
         sb.AppendLine("     1 = ecc >= 0.1 AND ecc < 0.3");
         sb.AppendLine("     2 = ecc >= 0.3 AND ecc < 0.6");
         sb.AppendLine("     3 = ecc >= 0.6");
         sb.AppendLine("   Examples: ecc=0.000 -> 0, ecc=0.017 -> 0, ecc=0.080 -> 0, ecc=0.110 -> 1, ecc=0.450 -> 2");
         sb.AppendLine();
-        sb.AppendLine("   DENSITY — look at density value in g/cm3:");
+        sb.AppendLine("   DENSITY \u0097 look at density value in g/cm3:");
         sb.AppendLine("     g = density < 1.0");
         sb.AppendLine("     w = density >= 1.0 AND density < 3.0");
         sb.AppendLine("     t = density >= 3.0 AND density < 8.0");
@@ -154,8 +161,12 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         sb.AppendLine();
         sb.AppendLine("   BEFORE RESPONDING, verify each code is exactly 4 characters.");
         sb.AppendLine();
+        sb.AppendLine("3. SCIENTIFIC NOTE \u0097 if RESEARCH CONTEXT is provided for a planet, write a one-sentence note");
+        sb.AppendLine("   explaining why this planet is scientifically interesting based on the research.");
+        sb.AppendLine("   If no research context is provided, write 'No research context available.'");
+        sb.AppendLine();
         sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
-        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"plavalova_code\": \"...\", \"reasoning\": \"...\"}");
+        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"plavalova_code\": \"...\", \"reasoning\": \"...\", \"scientific_note\": \"...\"}");
         sb.AppendLine("Keep reasoning to one sentence max.");
         sb.AppendLine();
         sb.AppendLine("--- PLANETS ---");
@@ -176,6 +187,16 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             sb.Append($", density={p.PlanetDensity?.ToString("F2") ?? "?"}");
             sb.Append($", insol={p.InsolationFlux?.ToString("F2") ?? "?"}");
             sb.AppendLine();
+
+            // RAG: retrieve relevant references for this planet
+            var description = $"{c.PlanetName} mass={p.PlanetMass?.ToString("F2")} temp={p.EquilibriumTemp?.ToString("F0")} density={p.PlanetDensity?.ToString("F2")}";
+            var refs = await _ragRetrievalService.RetrieveAsync(c.PlanetName, description, ingestRunId);
+            if (refs.Count > 0)
+            {
+                sb.AppendLine("  RESEARCH CONTEXT:");
+                foreach (var r in refs)
+                    sb.AppendLine($"  - {r.Content} (relevance: {r.SimilarityScore:F2})");
+            }
         }
 
         sb.AppendLine("--- END PLANETS ---");

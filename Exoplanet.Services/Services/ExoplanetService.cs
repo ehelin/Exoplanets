@@ -39,6 +39,8 @@ public sealed class ExoplanetService : IExoplanetService
         await _plog.Info("Pipeline starting.");
 
         var incoming = await FetchFromSourceAsync();
+        incoming = incoming.Take(20).ToList();
+
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
         await _plog.Info($"Ingest run {run.Id} created.", run.Id);
 
@@ -81,6 +83,7 @@ public sealed class ExoplanetService : IExoplanetService
             throw;
         }
     }
+
     private async Task RunLlmJudgeAsync(int runId)
     {
         try

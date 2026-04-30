@@ -20,6 +20,7 @@ public class PlanetEntity
     public string? HabitabilityScore { get; set; }
     public DateTimeOffset CreatedUtc { get; set; }
     public DateTimeOffset UpdatedUtc { get; set; }
+    public string? ScientificNote { get; set; }
 
     public SolarSystemEntity SolarSystem { get; set; } = null!;
 }

@@ -13,6 +13,15 @@ public sealed class ExoplanetRepository : IExoplanetRepository
         _db = db;
     }
 
+    // ── RAG ────────────────────────────────────────────────
+    public async Task WriteRetrievalLogsAsync(List<RetrievalLogEntity> logs)
+    {
+        if (logs.Count == 0) return;
+        _db.RetrievalLogs.AddRange(logs);
+        await _db.SaveChangesAsync();
+    }
+
+
     // ── Planet reads ───────────────────────────────────────
 
     public async Task<List<PlanetEntity>> GetAllPlanetsAsync()

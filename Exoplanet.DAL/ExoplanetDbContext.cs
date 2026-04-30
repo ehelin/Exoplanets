@@ -22,6 +22,8 @@ public sealed class ExoplanetDbContext : DbContext
     public DbSet<PipelineLogEntity> PipelineLogs => Set<PipelineLogEntity>();
     public DbSet<EvalResultEntity> EvalResults => Set<EvalResultEntity>();
 
+    public DbSet<RetrievalLogEntity> RetrievalLogs => Set<RetrievalLogEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         const string schema = "exoplanet";
@@ -77,6 +79,7 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.Classification).HasColumnName("classification").HasMaxLength(50);
             e.Property(x => x.PlavalovaCode).HasColumnName("plavalova_code").HasMaxLength(20);
             e.Property(x => x.HabitabilityScore).HasColumnName("habitability_score").HasMaxLength(50);
+            e.Property(x => x.ScientificNote).HasColumnName("scientific_note");
             e.Property(x => x.CreatedUtc).HasColumnName("created_utc");
             e.Property(x => x.UpdatedUtc).HasColumnName("updated_utc");
             e.HasOne(x => x.SolarSystem).WithMany().HasForeignKey(x => x.SolarSystemId);
@@ -197,6 +200,22 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.PassFail).HasColumnName("pass_fail").HasMaxLength(10);
             e.Property(x => x.EvaluatedAt).HasColumnName("evaluated_at").HasDefaultValueSql("NOW()");
             e.HasOne(x => x.IngestRun).WithMany().HasForeignKey(x => x.IngestRunId);
+        });
+
+        // ── RetrievalLog ───────────────────────────────────────
+        modelBuilder.Entity<RetrievalLogEntity>(e =>
+        {
+            e.ToTable("retrieval_log", schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.IngestRunId).HasColumnName("ingest_run_id");
+            e.Property(x => x.PlanetName).HasColumnName("planet_name").HasMaxLength(255).IsRequired();
+            e.Property(x => x.ReferenceId).HasColumnName("reference_id");
+            e.Property(x => x.ReferenceName).HasColumnName("reference_name");
+            e.Property(x => x.SimilarityScore).HasColumnName("similarity_score");
+            e.Property(x => x.WasReferenced).HasColumnName("was_referenced");
+            e.Property(x => x.RetrievedAt).HasColumnName("retrieved_at").HasDefaultValueSql("NOW()");
+            e.HasOne(x => x.IngestRun).WithMany().HasForeignKey(x => x.IngestRunId).IsRequired(false);
         });
     }
 }
