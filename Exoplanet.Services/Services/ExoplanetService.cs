@@ -14,6 +14,7 @@ public sealed class ExoplanetService : IExoplanetService
     private readonly IChangeClassifierService _classifier;
     private readonly IEvalRunner _evalRunner;
     private readonly IPipelineLogger _plog;
+    private readonly IRagIngestionService _rag;
 
     private const string SourceName = "NASA_EXOPLANET_ARCHIVE";
     private const string SourceUrl = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+pl_name,hostname,disc_year,discoverymethod,pl_bmasse,pl_rade,pl_orbper,pl_orbsmax,pl_orbeccen,pl_eqt,pl_dens,pl_insol,st_teff,st_rad,st_mass,st_spectype,sy_dist,sy_snum,sy_pnum+from+pscomppars&format=json";
@@ -24,7 +25,8 @@ public sealed class ExoplanetService : IExoplanetService
         IChangeReportService reportService,
         IChangeClassifierService classifier,
         IEvalRunner evalRunner,
-        IPipelineLogger plog)
+        IPipelineLogger plog,
+        IRagIngestionService rag)
     {
         _api = api;
         _repo = repo;
@@ -32,6 +34,7 @@ public sealed class ExoplanetService : IExoplanetService
         _classifier = classifier;
         _evalRunner = evalRunner;
         _plog = plog;
+        _rag = rag;
     }
 
     public async Task<ExoplanetRunResult> RunAsync()
@@ -53,6 +56,9 @@ public sealed class ExoplanetService : IExoplanetService
             await _plog.Info($"Diff: {newCount} new, {updatedCount} updated, {deletedCount} deleted, {unchangedCount} unchanged.", run.Id);
 
             await CompleteRunAsync(run, incoming.Count, newCount, updatedCount, deletedCount, unchangedCount);
+
+            // RAG: ingest references for all planets before classification
+            await RunRagIngestionAsync();
 
             if (changes.Count > 0)
             {
@@ -81,6 +87,19 @@ public sealed class ExoplanetService : IExoplanetService
             await _plog.Error($"Pipeline failed: {ex.Message}", run.Id, ex);
             await _repo.FailIngestRunAsync(run, ex.Message);
             throw;
+        }
+    }
+
+    private async Task RunRagIngestionAsync()
+    {
+        try
+        {
+            await _rag.IngestReferencesAsync();
+            await _plog.Info("RAG ingestion complete.");
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"RAG ingestion failed: {ex.Message}");
         }
     }
 

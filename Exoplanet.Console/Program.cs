@@ -25,7 +25,7 @@ var logger = provider.GetRequiredService<ILogger<Program>>();
 
 logger.LogInformation("Starting ExoplanetService...");
 
-await ragService.IngestReferencesAsync();
+//await ragService.IngestReferencesAsync();
 var result = await exoPlanetService.RunAsync();
 
 logger.LogInformation(
