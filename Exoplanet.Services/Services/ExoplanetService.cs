@@ -8,6 +8,7 @@ namespace Exoplanet.Services;
 
 public sealed class ExoplanetService : IExoplanetService
 {
+    #region Constructor / Class Varibles
     private readonly IExoplanetApiClient _api;
     private readonly IExoplanetRepository _repo;
     private readonly IChangeReportService _reportService;
@@ -36,6 +37,7 @@ public sealed class ExoplanetService : IExoplanetService
         _plog = plog;
         _rag = rag;
     }
+    #endregion
 
     public async Task<ExoplanetRunResult> RunAsync()
     {

@@ -10,6 +10,7 @@ namespace Exoplanet.Services;
 
 public sealed class ChangeClassifierService : IChangeClassifierService
 {
+    #region Constructor / Class Variables
     private readonly HttpClient _http;
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
@@ -38,6 +39,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
                 new AuthenticationHeaderValue("Bearer", apiKey);
         }
     }
+    #endregion
 
     public async Task ClassifyAsync(int ingestRunId)
     {
@@ -95,6 +97,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         var sb = new StringBuilder();
 
         sb.AppendLine("You are an exoplanet classifier. For each planet below, provide THREE items:");
+        #region Build rest of prompt
         sb.AppendLine();
         sb.AppendLine("1. DATA QUALITY classification:");
         sb.AppendLine("   - CONFIRMED: has discovery year (1992-2026), mass or radius, and orbital data");
@@ -170,9 +173,11 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         sb.AppendLine("Keep reasoning to one sentence max.");
         sb.AppendLine();
         sb.AppendLine("--- PLANETS ---");
+        #endregion
 
         foreach (var c in batch)
         {
+            #region batch prompt setup
             if (!planetLookup.TryGetValue(c.PlanetName, out var p))
                 continue;
 
@@ -187,6 +192,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             sb.Append($", density={p.PlanetDensity?.ToString("F2") ?? "?"}");
             sb.Append($", insol={p.InsolationFlux?.ToString("F2") ?? "?"}");
             sb.AppendLine();
+            #endregion
 
             // RAG: retrieve relevant references for this planet
             var description = $"{c.PlanetName} mass={p.PlanetMass?.ToString("F2")} temp={p.EquilibriumTemp?.ToString("F0")} density={p.PlanetDensity?.ToString("F2")}";

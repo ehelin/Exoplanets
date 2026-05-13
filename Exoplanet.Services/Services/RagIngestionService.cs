@@ -11,14 +11,14 @@ namespace Exoplanet.Services;
 
 public sealed class RagIngestionService : IRagIngestionService
 {
+    #region Constructor / Class Variables
     private readonly HttpClient _http;
     private readonly VectorDbContext _vectorDb;
     private readonly IExoplanetRepository _repo;
     private readonly IPipelineLogger _plog;
     private readonly string _model;
 
-    private const string NasaPsBaseUrl =
-        "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+pl_name,pl_refname,pl_pubdate,pl_bmasse,pl_rade,pl_orbper,pl_eqt,pl_dens,discoverymethod+from+ps+where+pl_name='{0}'&format=json";
+    private const string NasaPsBaseUrl = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+pl_name,pl_refname,pl_pubdate,pl_bmasse,pl_rade,pl_orbper,pl_eqt,pl_dens,discoverymethod+from+ps+where+pl_name='{0}'&format=json";
 
     public RagIngestionService(
         HttpClient http,
@@ -40,6 +40,7 @@ public sealed class RagIngestionService : IRagIngestionService
                 new AuthenticationHeaderValue("Bearer", apiKey);
         }
     }
+    #endregion
 
     public async Task IngestReferencesAsync()
     {
@@ -47,6 +48,7 @@ public sealed class RagIngestionService : IRagIngestionService
 
         // Get planets from our database
         var planets = await _repo.GetAllPlanetsAsync();
+        #region Loop Setup
         if (planets.Count == 0)
         {
             await _plog.Info("No planets in database. Skipping RAG ingestion.");
@@ -62,11 +64,11 @@ public sealed class RagIngestionService : IRagIngestionService
         await _plog.Info($"Vector DB has {existing.Count} existing references.");
 
         var nasaHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        nasaHttp.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json"));
+        nasaHttp.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var allNewRefs = new List<(string PlanetName, string RefName, string? PubDate, string Content)>();
         int planetCount = 0;
+        #endregion
 
         foreach (var planet in planets)
         {
@@ -77,6 +79,8 @@ public sealed class RagIngestionService : IRagIngestionService
             try
             {
                 var responseStr = await nasaHttp.GetStringAsync(url);
+
+                #region Processing Response for this planet
                 using var doc = JsonDocument.Parse(responseStr);
 
                 if (doc.RootElement.ValueKind != JsonValueKind.Array)
@@ -92,12 +96,12 @@ public sealed class RagIngestionService : IRagIngestionService
                     var key = planetName.Trim() + "|" + refName.Trim();
                     if (existing.Contains(key))
                         continue;
-
                     var content = BuildContent(el, planetName, refName);
                     var pubDate = GetString(el, "pl_pubdate");
                     allNewRefs.Add((planetName.Trim(), refName.Trim(), pubDate, content));
                     existing.Add(key);
                 }
+                #endregion
             }
             catch (Exception ex)
             {
@@ -112,6 +116,11 @@ public sealed class RagIngestionService : IRagIngestionService
 
         if (allNewRefs.Count == 0) return;
 
+        await SaveRagData(allNewRefs);
+    }
+
+    private async Task SaveRagData(List<(string PlanetName, string RefName, string? PubDate, string Content)> allNewRefs)
+    {
         // Embed and store in batches of 100
         var batchSize = 100;
         var batches = allNewRefs
