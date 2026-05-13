@@ -166,7 +166,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         sb.AppendLine();
         sb.AppendLine("3. SCIENTIFIC NOTE \u0097 if RESEARCH CONTEXT is provided for a planet, write a one-sentence note");
         sb.AppendLine("   explaining why this planet is scientifically interesting based on the research.");
-        sb.AppendLine("   If no research context is provided, write 'No research context available.'");
+        //sb.AppendLine("   If no research context is provided, write 'No research context available.'");
         sb.AppendLine();
         sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
         sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"plavalova_code\": \"...\", \"reasoning\": \"...\", \"scientific_note\": \"...\"}");

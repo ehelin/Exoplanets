@@ -1,0 +1,2 @@
+planet_name,content
+Kepler-1167 b,"Morton et al. 2016 validated Kepler-1167 b as part of a large-scale automated validation using false positive probability calculations for every Kepler Object of Interest. Out of 7056 KOIs, 1935 had probabilities less than 1% of being astrophysical false positives. Kepler-1167 b was among the 1284 newly validated planets. The validation used vespa, a publicly available Python package, and produced full stellar property posterior samplings for every host star modeled as single, binary, and triple systems."
