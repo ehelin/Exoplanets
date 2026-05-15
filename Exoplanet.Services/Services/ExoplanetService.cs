@@ -44,7 +44,7 @@ public sealed class ExoplanetService : IExoplanetService
         await _plog.Info("Pipeline starting.");
 
         var incoming = await FetchFromSourceAsync();
-        incoming = incoming.Take(20).ToList();
+        incoming = incoming.Where(x => x.PlanetName.ToLower() == "hd 189733 b").ToList();
 
         var run = await _repo.CreateIngestRunAsync(SourceName, SourceUrl, incoming.Count);
         await _plog.Info($"Ingest run {run.Id} created.", run.Id);

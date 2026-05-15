@@ -2,8 +2,9 @@
 using System.Text;
 using System.Text.Json;
 using Exoplanet.DAL;
-using Exoplanet.Shared.Entities;
 using Exoplanet.Services.Prompts;
+using Exoplanet.Shared.Entities;
+using Exoplanet.Shared.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -12,7 +13,9 @@ namespace Tests;
 /// <summary>
 /// RAG Comparison — classifies the same planets with and without RAG context.
 /// Real OpenAI API calls. No database writes. Results printed to test output.
-/// Shows the difference RAG makes in classification and scientific notes.
+///
+/// Uses the SAME prompt as production (ClassificationPromptBuilder). The only
+/// difference between the two runs is whether ragContext is null or populated.
 /// </summary>
 public class RagComparisonTests
 {
@@ -35,27 +38,23 @@ public class RagComparisonTests
 
         // Load planets from main DB
         var planets = await LoadPlanetsAsync(connString);
-        planets = planets.Where(x => x.PlanetName == "Kepler-1167 b").ToList();
+        //planets = planets.Where(x => x.PlanetName == "HD 189733 b").ToList();
         Assert.True(planets.Count > 0, "No planets loaded. Check planet names match your database.");
-
-        // Load references from vector DB
-        var references = await LoadReferencesAsync(vectorConnString, planets);
 
         using var http = new HttpClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        // Run 1: Without RAG
-        var promptWithout = BuildPrompt(planets, null);
+        // Run 1: Without RAG — same prompt, no context dictionary
+        var promptWithout = ClassificationPromptBuilder.Build(planets, ragContext: null);
         var responseWithout = await CallOpenAiAsync(http, model, promptWithout);
         var resultsWithout = ParseResults(responseWithout);
 
         // Run 2: With RAG — retrieve top 3 references per planet via embedding similarity
         var ragContext = await GetRagContextPerPlanet(http, embeddingModel, planets, vectorConnString);
-        var promptWith = BuildPrompt(planets, ragContext);
+        var promptWith = ClassificationPromptBuilder.Build(planets, ragContext);
         var responseWith = await CallOpenAiAsync(http, model, promptWith);
         var resultsWith = ParseResults(responseWith);
 
-        // Print comparison
         PrintComparison(planets, resultsWithout, resultsWith);
 
         Assert.True(true, "RAG comparison complete — see output above.");
@@ -70,62 +69,61 @@ public class RagComparisonTests
             .Options;
 
         await using var db = new ExoplanetDbContext(options);
-
         return await db.Planets.Take(10).ToListAsync();
     }
 
-    private static async Task<Dictionary<string, List<string>>> LoadReferencesAsync(
-        string vectorConnString, List<PlanetEntity> planets)
-    {
-        var options = new DbContextOptionsBuilder<VectorDbContext>()
-            .UseNpgsql(vectorConnString)
-            .Options;
-
-        await using var db = new VectorDbContext(options);
-
-        var planetNames = planets.Select(p => p.PlanetName).ToHashSet();
-        var allRefs = await db.ExoplanetReferences
-            .Where(r => planetNames.Contains(r.PlanetName))
-            .ToListAsync();
-
-        return allRefs
-            .GroupBy(r => r.PlanetName)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Select(r => r.Content).ToList());
-    }
-
-    private static async Task<Dictionary<string, List<(string Content, double Similarity)>>> GetRagContextPerPlanet(
+    /// <summary>
+    /// Retrieves top-3 references per planet from the vector DB. Uses a NARRATIVE-style
+    /// embedding query so the retriever favors discovery/findings text over flat
+    /// measurement strings. Returns RetrievedReference (same shape production uses).
+    /// </summary>
+    private static async Task<Dictionary<string, List<RetrievedReference>>> GetRagContextPerPlanet(
         HttpClient http, string embeddingModel, List<PlanetEntity> planets, string vectorConnString)
     {
         var options = new DbContextOptionsBuilder<VectorDbContext>()
             .UseNpgsql(vectorConnString)
             .Options;
 
-        var result = new Dictionary<string, List<(string, double)>>();
+        var result = new Dictionary<string, List<RetrievedReference>>();
 
         foreach (var planet in planets)
         {
-            var description = $"{planet.PlanetName} mass={planet.PlanetMass?.ToString("F2")} temp={planet.EquilibriumTemp?.ToString("F0")} density={planet.PlanetDensity?.ToString("F2")}";
+            // Narrative query — matches production retrieval query in ChangeClassifierService.
+            var description =
+                $"What is scientifically notable about {planet.PlanetName}? " +
+                $"Discovery papers, instruments used, atmospheric findings.";
 
-            // Get embedding for the query
             var queryEmbedding = await GetEmbeddingAsync(http, embeddingModel, description);
             var embeddingStr = "[" + string.Join(",", queryEmbedding) + "]";
 
-            // Query vector DB for top 3 most similar references
             await using var db = new VectorDbContext(options);
             var refs = await db.Database
                 .SqlQueryRaw<RawRefResult>(
                     "SELECT id, planet_name, reference_name, content, " +
                     "1 - (embedding <=> {0}::vector) AS similarity " +
                     "FROM exoplanet_reference " +
+                    "WHERE planet_name = {1} " +
                     "ORDER BY embedding <=> {0}::vector " +
                     "LIMIT 3",
-                    embeddingStr)
+                    embeddingStr, planet.PlanetName)
                 .ToListAsync();
 
+            // Show what the retriever actually pulled — proof for the blog post.
+            Console.WriteLine($"--- Retrieved for {planet.PlanetName} ---");
+            foreach (var r in refs)
+            {
+                var preview = r.content.Length > 120 ? r.content.Substring(0, 120) + "..." : r.content;
+                Console.WriteLine($"  [sim={r.similarity:F3}] {preview}");
+            }
+
             result[planet.PlanetName] = refs
-                .Select(r => (r.content, r.similarity))
+                .Select(r => new RetrievedReference
+                {
+                    ReferenceId = r.id,
+                    ReferenceName = r.reference_name,
+                    Content = r.content,
+                    SimilarityScore = r.similarity
+                })
                 .ToList();
         }
 
@@ -150,56 +148,6 @@ public class RagComparisonTests
             .EnumerateArray()
             .Select(v => v.GetSingle())
             .ToArray();
-    }
-
-    private static string BuildPrompt(
-        List<PlanetEntity> planets,
-        Dictionary<string, List<(string Content, double Similarity)>>? ragContext)
-    {
-        var sb = new StringBuilder();
-
-        sb.AppendLine("You are an exoplanet classifier. For each planet below, provide THREE items:");
-        sb.AppendLine();
-        sb.AppendLine("1. DATA QUALITY classification: CONFIRMED, CANDIDATE, or ANOMALY");
-        sb.AppendLine("2. PLAVALOVA CODE — EXACTLY 4 characters: [mass][temp][ecc][density]");
-        sb.AppendLine("3. SCIENTIFIC NOTE — if RESEARCH CONTEXT is provided, write a one-sentence note");
-        sb.AppendLine("   explaining why this planet is scientifically interesting based on the research.");
-        //sb.AppendLine("   If no research context is provided, write 'No research context available.'");
-        sb.AppendLine();
-        sb.AppendLine("   MASS: m(<0.1), e(0.1-10), N(10-100), J(100-4000), W(4000+) Earth masses");
-        sb.AppendLine("   TEMP: F(<200K), W(200-450K), G(450-1000K), R(1000K+)");
-        sb.AppendLine("   ECC: 0(<0.1), 1(0.1-0.3), 2(0.3-0.6), 3(0.6+)");
-        sb.AppendLine("   DENSITY: g(<1), w(1-3), t(3-8), i(8-15), s(15+) g/cm3");
-        sb.AppendLine("   Use '?' for missing data.");
-        sb.AppendLine();
-        sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
-        sb.AppendLine("Each element: {\"planet_name\": \"...\", \"classification\": \"...\", \"plavalova_code\": \"...\", \"reasoning\": \"...\", \"scientific_note\": \"...\"}");
-        sb.AppendLine();
-        sb.AppendLine("--- PLANETS ---");
-
-        foreach (var p in planets)
-        {
-            sb.Append($"name={p.PlanetName}");
-            sb.Append($", disc_year={p.DiscoveryYear?.ToString() ?? "?"}");
-            sb.Append($", method={p.DiscoveryMethod ?? "?"}");
-            sb.Append($", mass_earth={p.PlanetMass?.ToString("F2") ?? "?"}");
-            sb.Append($", radius_earth={p.PlanetRadius?.ToString("F2") ?? "?"}");
-            sb.Append($", period_days={p.OrbitalPeriod?.ToString("F2") ?? "?"}");
-            sb.Append($", ecc={p.Eccentricity?.ToString("F3") ?? "?"}");
-            sb.Append($", temp_k={p.EquilibriumTemp?.ToString("F0") ?? "?"}");
-            sb.Append($", density={p.PlanetDensity?.ToString("F2") ?? "?"}");
-            sb.AppendLine();
-
-            if (ragContext != null && ragContext.TryGetValue(p.PlanetName, out var refs) && refs.Count > 0)
-            {
-                sb.AppendLine("  RESEARCH CONTEXT:");
-                foreach (var (content, similarity) in refs)
-                    sb.AppendLine($"  - {content} (relevance: {similarity:F2})");
-            }
-        }
-
-        sb.AppendLine("--- END PLANETS ---");
-        return sb.ToString();
     }
 
     private static Dictionary<string, (string Classification, string PlavalovaCode, string ScientificNote)> ParseResults(string responseText)
@@ -262,8 +210,6 @@ public class RagComparisonTests
         sb.AppendLine();
         sb.AppendLine("=== RAG COMPARISON RESULTS ===");
         sb.AppendLine();
-
-        // Summary table
         sb.AppendLine($"{"Planet",-25} {"Code (no RAG)",15} {"Code (RAG)",15} {"Match?",8}");
         sb.AppendLine(new string('-', 65));
 
@@ -272,11 +218,9 @@ public class RagComparisonTests
             var without = withoutRag.TryGetValue(planet.PlanetName, out var w) ? w : (Classification: "?", PlavalovaCode: "?", ScientificNote: "");
             var with = withRag.TryGetValue(planet.PlanetName, out var r) ? r : (Classification: "?", PlavalovaCode: "?", ScientificNote: "");
             var match = without.PlavalovaCode == with.PlavalovaCode ? "Same" : "DIFF";
-
             sb.AppendLine($"{planet.PlanetName,-25} {without.PlavalovaCode,15} {with.PlavalovaCode,15} {match,8}");
         }
 
-        // Detailed scientific notes comparison
         sb.AppendLine();
         sb.AppendLine("=== SCIENTIFIC NOTES COMPARISON ===");
 
@@ -295,7 +239,7 @@ public class RagComparisonTests
     }
 }
 
-// Raw SQL result class for vector similarity query
+// Raw SQL result type for the vector similarity query
 public class RawRefResult
 {
     public int id { get; set; }
