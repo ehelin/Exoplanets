@@ -92,8 +92,8 @@ public static class ClassificationPromptBuilder
         sb.AppendLine("   - References a SPECIFIC paper, instrument, or finding from the context");
         sb.AppendLine("     (e.g. 'Knutson et al. 2007 used Spitzer to map the day-night temperature')");
         sb.AppendLine("   - Does NOT use generic phrases like 'extreme atmospheric conditions' or 'hot Jupiter'");
-        sb.AppendLine("   - If context contains only measurement values with no specific findings,");
-        sb.AppendLine("     respond exactly: 'Research context contains only measurement data.'");
+       // sb.AppendLine("   - If context contains only measurement values with no specific findings,");
+       // sb.AppendLine("     respond exactly: 'Research context contains only measurement data.'");
        //sb.AppendLine("   - If no RESEARCH CONTEXT is provided, respond exactly: 'No research context available.'");
         sb.AppendLine();
         sb.AppendLine("Respond ONLY with a JSON array. No markdown, no backticks.");
