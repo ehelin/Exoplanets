@@ -23,6 +23,7 @@ public sealed class ExoplanetDbContext : DbContext
     public DbSet<EvalResultEntity> EvalResults => Set<EvalResultEntity>();
 
     public DbSet<RetrievalLogEntity> RetrievalLogs => Set<RetrievalLogEntity>();
+    public DbSet<AgentHandoff> AgentHandoffs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

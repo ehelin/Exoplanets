@@ -18,14 +18,17 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     private readonly string _model;
     private const int BatchSize = 50;
     private readonly IRagRetrievalService _ragRetrievalService;
+    private readonly IAgentBoundary _boundary;
 
     public ChangeClassifierService(
+        IAgentBoundary boundary,
         HttpClient http,
         IExoplanetRepository repo,
         IPipelineLogger plog,
         IConfiguration config,
         IRagRetrievalService ragRetrievalService)
     {
+        _boundary = boundary;
         _http = http;
         _repo = repo;
         _plog = plog;
@@ -63,6 +66,10 @@ public sealed class ChangeClassifierService : IChangeClassifierService
             .Select(g => g.Select(x => x.Change).ToList())
             .ToList();
 
+        // Accumulate classifications across all batches for the handoff payload
+        var allClassifications = new Dictionary<string, (string Classification, string Reasoning)>(
+            StringComparer.OrdinalIgnoreCase);
+
         int batchNum = 0;
         foreach (var batch in batches)
         {
@@ -78,6 +85,9 @@ public sealed class ChangeClassifierService : IChangeClassifierService
 
                 await _repo.ApplyClassificationsAsync(batch, classifications);
 
+                foreach (var kvp in classifications)
+                    allClassifications[kvp.Key] = kvp.Value;
+
                 await _plog.Info($"Batch {batchNum} classified. Tokens: {tokensUsed}.", ingestRunId);
             }
             catch (Exception ex)
@@ -85,6 +95,22 @@ public sealed class ChangeClassifierService : IChangeClassifierService
                 await _plog.Warning($"Batch {batchNum} classification failed: {ex.Message}", ingestRunId);
             }
         }
+
+        // Record handoff to the narrator
+        var inputSummary = $"{changes.Count} change_log rows for run {ingestRunId}";
+        var outputSummary = JsonSerializer.Serialize(
+            allClassifications.Select(c => new
+            {
+                planet = c.Key,
+                classification = c.Value.Classification,
+                reasoning = c.Value.Reasoning
+            }));
+
+        await _boundary.RecordHandoffAsync(
+            ingestRunId,
+            "classifier",
+            inputSummary,
+            outputSummary);
 
         await _plog.Info("Classification complete.", ingestRunId);
     }

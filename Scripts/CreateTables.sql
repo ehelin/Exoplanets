@@ -214,3 +214,15 @@ ALTER TABLE exoplanet.planets ALTER COLUMN orbital_period TYPE NUMERIC(20, 6);
 ALTER TABLE exoplanet.planets ALTER COLUMN insolation_flux TYPE NUMERIC(20, 6);
 ALTER TABLE exoplanet.planets ALTER COLUMN planet_mass TYPE NUMERIC(20, 6);
 ALTER TABLE exoplanet.planets ALTER COLUMN equilibrium_temp TYPE NUMERIC(20, 6);
+
+CREATE TABLE agent_handoff (
+    id SERIAL PRIMARY KEY,
+    ingest_id INTEGER NOT NULL,
+    agent_name TEXT NOT NULL,
+    input_summary TEXT NOT NULL,
+    output_summary TEXT NOT NULL,
+    handoff_timestamp TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_agent_handoff_ingest_agent
+    ON agent_handoff (ingest_id, agent_name);

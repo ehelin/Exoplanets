@@ -1,4 +1,5 @@
 using Exoplanet.DAL;
+using Exoplanet.Services.Services;
 using Exoplanet.Shared.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Shared.Interfaces;
@@ -28,6 +29,7 @@ public static class ServicesServiceCollectionExtensions
         services.AddHttpClient<IEvalRunner, EvalRunner>();
         services.AddHttpClient<IRagIngestionService, RagIngestionService>();
         services.AddHttpClient<IRagRetrievalService, RagRetrievalService>();
+        services.AddScoped<IAgentBoundary, AgentBoundary>();
 
         return services;
     }
