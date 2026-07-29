@@ -2,5 +2,5 @@ namespace Exoplanet.Services;
 
 public interface IChangeReportService
 {
-    Task GenerateReportAsync(int ingestRunId);
+    Task<string> GenerateReportAsync(int ingestRunId);
 }

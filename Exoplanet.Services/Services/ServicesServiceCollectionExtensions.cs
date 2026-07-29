@@ -31,6 +31,10 @@ public static class ServicesServiceCollectionExtensions
         services.AddHttpClient<IRagRetrievalService, RagRetrievalService>();
         services.AddScoped<IAgentBoundary, AgentBoundary>();
 
+        // Agents (Phase 5.1)
+        services.AddScoped<ClassifierAgent>();
+        services.AddScoped<NarratorAgent>();
+
         return services;
     }
 }

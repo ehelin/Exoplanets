@@ -218,5 +218,19 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.RetrievedAt).HasColumnName("retrieved_at").HasDefaultValueSql("NOW()");
             e.HasOne(x => x.IngestRun).WithMany().HasForeignKey(x => x.IngestRunId).IsRequired(false);
         });
+
+        // ── AgentHandoff ───────────────────────────────────────
+        modelBuilder.Entity<AgentHandoff>(e =>
+        {
+            e.ToTable("agent_handoff", schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.IngestId).HasColumnName("ingest_id");
+            e.Property(x => x.AgentName).HasColumnName("agent_name").HasMaxLength(50).IsRequired();
+            e.Property(x => x.InputSummary).HasColumnName("input_summary").IsRequired();
+            e.Property(x => x.OutputSummary).HasColumnName("output_summary").IsRequired();
+            e.Property(x => x.HandoffTimestamp).HasColumnName("handoff_timestamp").HasDefaultValueSql("NOW()");
+            e.HasIndex(x => new { x.IngestId, x.AgentName });
+        });
     }
 }

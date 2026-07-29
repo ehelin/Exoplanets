@@ -10,30 +10,29 @@ using Shared.Interfaces;
 namespace Exoplanet.Services;
 
 /// <summary>
-/// Phase 2.3: AI as Explainer.
-/// Phase 5.1: Now reads its input from the classifier's logged handoff
-/// instead of pulling change_log directly. The boundary between agents
-/// is enforced by what the narrator can see.
+/// Reads change_log for a given ingest run, builds a prompt,
+/// calls OpenAI, writes the result to change_report, and returns
+/// the report text. The AI only sees diffs that code already
+/// detected — it never decides what changed. The agent layer
+/// above owns the boundary logging.
 /// </summary>
 public sealed class ChangeReportService : IChangeReportService
 {
-    #region class variables 
+    #region class variables
 
     private readonly HttpClient _http;
     private readonly IExoplanetRepository _repo;
     private readonly ILogger<ChangeReportService> _log;
     private readonly string _model;
-    private readonly IAgentBoundary _boundary;
 
     #endregion
 
-    public ChangeReportService(HttpClient http,
+    public ChangeReportService(
+        HttpClient http,
         IExoplanetRepository repo,
         IConfiguration config,
-        IAgentBoundary boundary,
         ILogger<ChangeReportService> log)
     {
-        _boundary = boundary;
         _http = http;
         _repo = repo;
         _log = log;
@@ -47,23 +46,15 @@ public sealed class ChangeReportService : IChangeReportService
         }
     }
 
-    public async Task GenerateReportAsync(int ingestRunId)
+    public async Task<string> GenerateReportAsync(int ingestRunId)
     {
-        // Step 1: Read the handoff from the classifier — not the raw change_log
-        var classifierHandoff = await _boundary.ReadPreviousHandoffAsync(ingestRunId, "classifier");
-
-        if (classifierHandoff == null)
-        {
-            _log.LogWarning("No classifier handoff found for run {RunId}, skipping report.", ingestRunId);
-            return;
-        }
-
+        // Step 1: Read the evidence — only change_log rows for this run
         var changes = await _repo.GetChangeLogByRunAsync(ingestRunId);
 
         if (changes.Count == 0)
         {
             _log.LogInformation("No changes for run {RunId}, skipping AI report.", ingestRunId);
-            return;
+            return string.Empty;
         }
 
         // Step 2: Build the prompt from structured diffs
@@ -87,14 +78,9 @@ public sealed class ChangeReportService : IChangeReportService
 
         await _repo.WriteChangeReportAsync(report);
 
-        // Step 5: Record narrator's handoff — what it received, what it produced
-        await _boundary.RecordHandoffAsync(
-            ingestRunId,
-            "narrator",
-            classifierHandoff.OutputSummary,
-            reportText);
-
         _log.LogInformation("Change report saved for run {RunId}. Tokens used: {Tokens}.", ingestRunId, tokensUsed);
+
+        return reportText;
     }
 
     private static string BuildPrompt(List<ChangeLogEntity> changes)

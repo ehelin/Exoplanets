@@ -1,3 +1,4 @@
+using Exoplanet.Services.Services;
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
 using Exoplanet.Shared.Models;
@@ -11,8 +12,8 @@ public sealed class ExoplanetService : IExoplanetService
     #region Constructor / Class Varibles
     private readonly IExoplanetApiClient _api;
     private readonly IExoplanetRepository _repo;
-    private readonly IChangeReportService _reportService;
-    private readonly IChangeClassifierService _classifier;
+    private readonly ClassifierAgent _classifierAgent;
+    private readonly NarratorAgent _narratorAgent;
     private readonly IEvalRunner _evalRunner;
     private readonly IPipelineLogger _plog;
     private readonly IRagIngestionService _rag;
@@ -23,16 +24,16 @@ public sealed class ExoplanetService : IExoplanetService
     public ExoplanetService(
         IExoplanetApiClient api,
         IExoplanetRepository repo,
-        IChangeReportService reportService,
-        IChangeClassifierService classifier,
+        ClassifierAgent classifierAgent,
+        NarratorAgent narratorAgent,
         IEvalRunner evalRunner,
         IPipelineLogger plog,
         IRagIngestionService rag)
     {
         _api = api;
         _repo = repo;
-        _reportService = reportService;
-        _classifier = classifier;
+        _classifierAgent = classifierAgent;
+        _narratorAgent = narratorAgent;
         _evalRunner = evalRunner;
         _plog = plog;
         _rag = rag;
@@ -64,8 +65,8 @@ public sealed class ExoplanetService : IExoplanetService
 
             if (changes.Count > 0)
             {
-                await RunClassifierAsync(run.Id);
-                await RunReportAsync(run.Id);
+                await RunAgentAsync(_classifierAgent, run.Id);
+                await RunAgentAsync(_narratorAgent, run.Id);
             }
 
             await RunEvalAsync(run.Id);
@@ -89,6 +90,18 @@ public sealed class ExoplanetService : IExoplanetService
             await _plog.Error($"Pipeline failed: {ex.Message}", run.Id, ex);
             await _repo.FailIngestRunAsync(run, ex.Message);
             throw;
+        }
+    }
+
+    private async Task RunAgentAsync(IAgent agent, int runId)
+    {
+        try
+        {
+            await agent.ExecuteAsync(runId);
+        }
+        catch (Exception ex)
+        {
+            await _plog.Warning($"{agent.AgentName} agent failed: {ex.Message}", runId);
         }
     }
 
@@ -230,32 +243,6 @@ public sealed class ExoplanetService : IExoplanetService
         run.RowsUnchanged = unchangedCount;
         run.RowsFetched = fetched;
         await _repo.CompleteIngestRunAsync(run);
-    }
-
-    private async Task RunClassifierAsync(int runId)
-    {
-        try
-        {
-            await _classifier.ClassifyAsync(runId);
-            await _plog.Info("AI classification complete.", runId);
-        }
-        catch (Exception ex)
-        {
-            await _plog.Warning($"AI classification failed: {ex.Message}", runId);
-        }
-    }
-
-    private async Task RunReportAsync(int runId)
-    {
-        try
-        {
-            await _reportService.GenerateReportAsync(runId);
-            await _plog.Info("AI report generated.", runId);
-        }
-        catch (Exception ex)
-        {
-            await _plog.Warning($"AI report failed: {ex.Message}", runId);
-        }
     }
 
     private async Task RunEvalAsync(int runId)

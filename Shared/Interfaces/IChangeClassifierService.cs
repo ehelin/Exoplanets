@@ -2,5 +2,5 @@ namespace Exoplanet.Services;
 
 public interface IChangeClassifierService
 {
-    Task ClassifyAsync(int ingestRunId);
+    Task<Dictionary<string, (string Classification, string Reasoning)>> ClassifyAsync(int ingestRunId);
 }
