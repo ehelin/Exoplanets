@@ -46,4 +46,20 @@ public sealed class AgentBoundary : IAgentBoundary
             .OrderByDescending(h => h.HandoffTimestamp)
             .FirstOrDefaultAsync();
     }
+
+    // TEMP stub so this compiles. Real impl comes when we add
+    // AgentIteration entity + agent_iteration table.
+    // For now, iterations are visible in pipeline_log instead of their own table.
+    public async Task RecordIterationAsync(
+        int ingestId,
+        string agentName,
+        int iterationNumber,
+        string approach,
+        string resultSummary,
+        string checkResult)
+    {
+        await _plog.Info(
+            $"Iteration: agent={agentName}, ingest={ingestId}, iter={iterationNumber}, " +
+            $"approach={approach}, result={resultSummary}, check={checkResult}");
+    }
 }

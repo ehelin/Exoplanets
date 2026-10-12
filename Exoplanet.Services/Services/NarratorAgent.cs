@@ -10,6 +10,7 @@ public sealed class NarratorAgent : IAgent
     private readonly IPipelineLogger _plog;
 
     public string AgentName => "narrator";
+    public int MaxIterations => 1;
 
     public NarratorAgent(
         IChangeReportService reportService,
