@@ -61,6 +61,9 @@ public sealed class NarratorAgent : IAgent
             reportText = await _reportService.GenerateReportAsync(ingestRunId);
             checkResult = CritiqueDraft(reportText);
 
+            // Post 1 debug: pause here to inspect the narrator's just-made critique
+            if (System.Diagnostics.Debugger.IsAttached) System.Diagnostics.Debugger.Break();
+
             await _boundary.RecordIterationAsync(
                 ingestRunId,
                 AgentName,

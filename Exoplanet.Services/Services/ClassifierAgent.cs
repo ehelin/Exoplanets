@@ -49,6 +49,9 @@ public sealed class ClassifierAgent : IAgent
             // CHECK: examine own work
             var check = CheckWork(classifications, changes.Count);
 
+            // Post 1 debug: pause here to inspect the classifier's just-made decision
+            if (System.Diagnostics.Debugger.IsAttached) System.Diagnostics.Debugger.Break();
+
             // LOG: record this iteration in agent_iteration
             await _boundary.RecordIterationAsync(
                 ingestRunId,

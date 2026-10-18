@@ -68,6 +68,9 @@ public sealed class ReviewerAgent : IAgent
 
             (verdict, reasoning) = await ReviewAsync(classifierHandoff.OutputSummary, depth);
 
+            // Post 1 debug: pause here to inspect the reviewer's just-made verdict + reasoning
+            if (System.Diagnostics.Debugger.IsAttached) System.Diagnostics.Debugger.Break();
+
             await _boundary.RecordIterationAsync(
                 ingestRunId,
                 AgentName,
