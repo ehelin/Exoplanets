@@ -13,6 +13,7 @@ public sealed class ExoplanetService : IExoplanetService
     private readonly IExoplanetApiClient _api;
     private readonly IExoplanetRepository _repo;
     private readonly ClassifierAgent _classifierAgent;
+    private readonly ReviewerAgent _reviewerAgent;
     private readonly NarratorAgent _narratorAgent;
     private readonly IEvalRunner _evalRunner;
     private readonly IPipelineLogger _plog;
@@ -25,6 +26,7 @@ public sealed class ExoplanetService : IExoplanetService
         IExoplanetApiClient api,
         IExoplanetRepository repo,
         ClassifierAgent classifierAgent,
+        ReviewerAgent reviewerAgent,
         NarratorAgent narratorAgent,
         IEvalRunner evalRunner,
         IPipelineLogger plog,
@@ -33,6 +35,7 @@ public sealed class ExoplanetService : IExoplanetService
         _api = api;
         _repo = repo;
         _classifierAgent = classifierAgent;
+        _reviewerAgent = reviewerAgent;
         _narratorAgent = narratorAgent;
         _evalRunner = evalRunner;
         _plog = plog;
@@ -66,6 +69,7 @@ public sealed class ExoplanetService : IExoplanetService
             if (changes.Count > 0)
             {
                 await RunAgentAsync(_classifierAgent, run.Id);
+                await RunAgentAsync(_reviewerAgent, run.Id);
                 await RunAgentAsync(_narratorAgent, run.Id);
             }
 

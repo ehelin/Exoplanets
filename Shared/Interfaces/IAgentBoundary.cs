@@ -13,4 +13,14 @@ public interface IAgentBoundary
     Task<AgentHandoff?> ReadPreviousHandoffAsync(
         int ingestId,
         string previousAgentName);
+
+    // Post 1 (Real Thinking Agents): logs one iteration of an agent's thinking loop.
+    // Writes to agent_iteration.
+    Task RecordIterationAsync(
+        int ingestRunId,
+        string agentName,
+        int iterationNumber,
+        string approach,
+        string resultSummary,
+        string checkResult);
 }

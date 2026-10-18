@@ -31,9 +31,13 @@ public static class ServicesServiceCollectionExtensions
         services.AddHttpClient<IRagRetrievalService, RagRetrievalService>();
         services.AddScoped<IAgentBoundary, AgentBoundary>();
 
-        // Agents (Phase 5.1)
+        // Agents (Phase 5.1 + Post 1 real thinking loops)
         services.AddScoped<ClassifierAgent>();
         services.AddScoped<NarratorAgent>();
+        services.AddHttpClient<ReviewerAgent>(http =>
+        {
+            http.Timeout = TimeSpan.FromMinutes(5);
+        });
 
         return services;
     }

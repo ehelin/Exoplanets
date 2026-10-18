@@ -42,8 +42,12 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     }
     #endregion
 
-    public async Task<Dictionary<string, (string Classification, string Reasoning)>> ClassifyAsync(int ingestRunId)
+    public async Task<Dictionary<string, (string Classification, string Reasoning)>> ClassifyAsync(
+        int ingestRunId,
+        Exoplanet.Shared.Models.ClassificationStrategy strategy = Exoplanet.Shared.Models.ClassificationStrategy.Default)
     {
+        await _plog.Info($"Classification strategy: {strategy}", ingestRunId);
+
         var allClassifications = new Dictionary<string, (string Classification, string Reasoning)>(
             StringComparer.OrdinalIgnoreCase);
 
@@ -74,7 +78,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
 
             try
             {
-                var prompt = await BuildClassificationPromptAsync(batch, planetLookup, ingestRunId);
+                var prompt = await BuildClassificationPromptAsync(batch, planetLookup, ingestRunId, strategy);
 
                 var (responseText, tokensUsed) = await CallOpenAiAsync(prompt);
                 var classifications = ParseClassifications(responseText);
@@ -97,14 +101,18 @@ public sealed class ChangeClassifierService : IChangeClassifierService
     }
 
     /// <summary>
-    /// Production prompt build path. Retrieves RAG context per planet, then hands
-    /// everything to the shared ClassificationPromptBuilder. The test path
-    /// (RagComparisonTests) calls the same builder directly.
+    /// Production prompt build path. Behavior depends on strategy:
+    /// - Default: no RAG, standard prompt (fastest, cheapest).
+    /// - WithRag: RAG context retrieved per planet, standard prompt.
+    /// - WithRagAndDetailedPrompt: RAG context + appended directive instructions
+    ///   nudging the model toward specific, evidence-grounded reasoning.
+    /// The test path (RagComparisonTests) calls ClassificationPromptBuilder directly.
     /// </summary>
     private async Task<string> BuildClassificationPromptAsync(
         List<ChangeLogEntity> batch,
         Dictionary<string, PlanetEntity> planetLookup,
-        int ingestRunId)
+        int ingestRunId,
+        Exoplanet.Shared.Models.ClassificationStrategy strategy)
     {
         // Resolve batch -> planet entities (skip any without a matching planet)
         var planetsInBatch = new List<PlanetEntity>();
@@ -114,22 +122,38 @@ public sealed class ChangeClassifierService : IChangeClassifierService
                 planetsInBatch.Add(p);
         }
 
-        // Retrieve RAG context per planet using a narrative-style query.
-        // (A numerical query like "mass=X temp=Y" pulls measurement strings;
-        // a narrative query pulls discovery papers and findings.)
         var ragContext = new Dictionary<string, List<RetrievedReference>>();
-        foreach (var p in planetsInBatch)
-        {
-            var description =
-                $"What is scientifically notable about {p.PlanetName}? " +
-                $"Discovery papers, instruments used, atmospheric findings.";
 
-            var refs = await _ragRetrievalService.RetrieveAsync(p.PlanetName, description, ingestRunId);
-            if (refs.Count > 0)
-                ragContext[p.PlanetName] = refs;
+        // Post 1 (Real Thinking Agents): skip RAG entirely for Default.
+        if (strategy != Exoplanet.Shared.Models.ClassificationStrategy.Default)
+        {
+            // Retrieve RAG context per planet using a narrative-style query.
+            // (A numerical query like "mass=X temp=Y" pulls measurement strings;
+            // a narrative query pulls discovery papers and findings.)
+            foreach (var p in planetsInBatch)
+            {
+                var description =
+                    $"What is scientifically notable about {p.PlanetName}? " +
+                    $"Discovery papers, instruments used, atmospheric findings.";
+
+                var refs = await _ragRetrievalService.RetrieveAsync(p.PlanetName, description, ingestRunId);
+                if (refs.Count > 0)
+                    ragContext[p.PlanetName] = refs;
+            }
         }
 
-        return ClassificationPromptBuilder.Build(planetsInBatch, ragContext);
+        var prompt = ClassificationPromptBuilder.Build(planetsInBatch, ragContext);
+
+        if (strategy == Exoplanet.Shared.Models.ClassificationStrategy.WithRagAndDetailedPrompt)
+        {
+            prompt +=
+                "\n\n--- ADDITIONAL DIRECTIVES ---\n" +
+                "The prior iteration produced thin reasoning. Be explicit about which measurements " +
+                "drove each classification. Cite the RAG context where it changed your answer. " +
+                "If you cannot justify a classification with data, say so in the reasoning.";
+        }
+
+        return prompt;
     }
 
     private static Dictionary<string, (string Classification, string Reasoning)> ParseClassifications(string responseText)

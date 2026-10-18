@@ -46,4 +46,31 @@ public sealed class AgentBoundary : IAgentBoundary
             .OrderByDescending(h => h.HandoffTimestamp)
             .FirstOrDefaultAsync();
     }
+
+    // Post 1 (Real Thinking Agents): logs one iteration of an agent's thinking loop to agent_iteration.
+    public async Task RecordIterationAsync(
+        int ingestRunId,
+        string agentName,
+        int iterationNumber,
+        string approach,
+        string resultSummary,
+        string checkResult)
+    {
+        var iteration = new AgentIteration
+        {
+            IngestRunId = ingestRunId,
+            AgentName = agentName,
+            IterationNumber = iterationNumber,
+            Approach = approach,
+            ResultSummary = resultSummary,
+            CheckResult = checkResult,
+            IteratedAt = DateTime.UtcNow
+        };
+
+        _db.AgentIterations.Add(iteration);
+        await _db.SaveChangesAsync();
+
+        await _plog.Info(
+            $"Iteration recorded: agent={agentName}, ingest={ingestRunId}, iter={iterationNumber}, check={checkResult}");
+    }
 }

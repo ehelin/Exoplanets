@@ -24,6 +24,7 @@ public sealed class ExoplanetDbContext : DbContext
 
     public DbSet<RetrievalLogEntity> RetrievalLogs => Set<RetrievalLogEntity>();
     public DbSet<AgentHandoff> AgentHandoffs { get; set; }
+    public DbSet<AgentIteration> AgentIterations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -231,6 +232,22 @@ public sealed class ExoplanetDbContext : DbContext
             e.Property(x => x.OutputSummary).HasColumnName("output_summary").IsRequired();
             e.Property(x => x.HandoffTimestamp).HasColumnName("handoff_timestamp").HasDefaultValueSql("NOW()");
             e.HasIndex(x => new { x.IngestId, x.AgentName });
+        });
+
+        // ── AgentIteration ─────────────────────────────────────
+        modelBuilder.Entity<AgentIteration>(e =>
+        {
+            e.ToTable("agent_iteration", schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.IngestRunId).HasColumnName("ingest_run_id");
+            e.Property(x => x.AgentName).HasColumnName("agent_name").HasMaxLength(50).IsRequired();
+            e.Property(x => x.IterationNumber).HasColumnName("iteration_number");
+            e.Property(x => x.Approach).HasColumnName("approach").IsRequired();
+            e.Property(x => x.ResultSummary).HasColumnName("result_summary").IsRequired();
+            e.Property(x => x.CheckResult).HasColumnName("check_result").IsRequired();
+            e.Property(x => x.IteratedAt).HasColumnName("iterated_at").HasDefaultValueSql("NOW()");
+            e.HasIndex(x => new { x.IngestRunId, x.AgentName });
         });
     }
 }
