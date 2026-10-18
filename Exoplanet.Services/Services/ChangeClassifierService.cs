@@ -4,6 +4,7 @@ using System.Text.Json;
 using Exoplanet.Services.Prompts;
 using Exoplanet.Shared.Entities;
 using Exoplanet.Shared.Interfaces;
+using Exoplanet.Shared.Models;
 using Microsoft.Extensions.Configuration;
 using Shared.Interfaces;
 
@@ -62,7 +63,7 @@ public sealed class ChangeClassifierService : IChangeClassifierService
         var planets = await _repo.GetAllPlanetsAsync();
         var planetLookup = planets.ToDictionary(p => p.PlanetName, p => p);
 
-        await _plog.Info($"Classifying {changes.Count} changes in batches of {BatchSize}.", ingestRunId);
+        await _plog.Info($"Classifying {changes.Count} changes in batches of {BatchSize}. Strategy={strategy}", ingestRunId);
 
         var batches = changes
             .Select((c, i) => new { Change = c, Index = i })

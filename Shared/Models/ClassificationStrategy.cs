@@ -1,11 +1,15 @@
 namespace Exoplanet.Shared.Models;
 
-// Post 1 (Real Thinking Agents): the classifier picks a strategy per iteration.
-// Default = fast path, no RAG. WithRag = adds RAG context. WithRagAndDetailedPrompt
-// = adds RAG and a more directive prompt. The classifier escalates on retry.
+// How the ClassifierAgent asks the classifier service to do its work.
+// The agent picks a different strategy on each loop iteration.
 public enum ClassificationStrategy
 {
+    // Fast pass — no RAG, standard prompt.
     Default = 0,
+
+    // Add scientific context from the RAG vector database.
     WithRag = 1,
+
+    // RAG plus a more explicit / detailed prompt asking for stronger reasoning.
     WithRagAndDetailedPrompt = 2
 }

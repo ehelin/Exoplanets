@@ -33,42 +33,43 @@ public sealed class ClassifierAgent : IAgent
         var changes = await _repo.GetChangeLogByRunAsync(ingestRunId);
         var inputSummary = $"{changes.Count} change_log rows for run {ingestRunId}";
 
-        // Do the job (service is doing the thinking)
-        // Post 1 (Real Thinking Agents): self-directed loop. Try, check own work,
-        // escalate the strategy and retry if not satisfied, stop when confident
-        // or MaxIterations hit.
         Dictionary<string, (string Classification, string Reasoning)> classifications = new();
-        string checkResult = "no_attempt";
+        string finalReason = "";
 
+        // The self-directed thinking loop
         for (int iteration = 1; iteration <= MaxIterations; iteration++)
         {
+            // TRY: pick an approach for this iteration
             var strategy = ChooseStrategy(iteration);
-            await _plog.Info(
-                $"{AgentName} iteration {iteration}/{MaxIterations} using strategy={strategy}",
-                ingestRunId);
+            await _plog.Info($"{AgentName} iteration {iteration}: trying {strategy}", ingestRunId);
 
+            // Do the job (service is doing the thinking)
             classifications = await _classifier.ClassifyAsync(ingestRunId, strategy);
-            checkResult = CheckWork(classifications);
 
+            // CHECK: examine own work
+            var check = CheckWork(classifications, changes.Count);
+
+            // LOG: record this iteration in agent_iteration
             await _boundary.RecordIterationAsync(
                 ingestRunId,
                 AgentName,
                 iteration,
                 strategy.ToString(),
-                $"{classifications.Count} classifications produced",
-                checkResult);
+                $"got {classifications.Count} classifications",
+                check.Confident ? $"confident: {check.Reason}" : $"not confident: {check.Reason}");
 
-            if (checkResult == "satisfied")
+            finalReason = check.Reason;
+
+            // DECIDE: stop or continue?
+            if (check.Confident)
             {
-                await _plog.Info($"{AgentName} satisfied at iteration {iteration}.", ingestRunId);
+                await _plog.Info($"{AgentName} exit at iteration {iteration}: {check.Reason}", ingestRunId);
                 break;
             }
 
             if (iteration == MaxIterations)
             {
-                await _plog.Warning(
-                    $"{AgentName} hit safety cap of {MaxIterations} iterations, shipping best-effort result.",
-                    ingestRunId);
+                await _plog.Warning($"{AgentName} hit safety cap at {MaxIterations} iterations: {check.Reason}", ingestRunId);
             }
         }
 
@@ -88,10 +89,12 @@ public sealed class ClassifierAgent : IAgent
             inputSummary,
             outputSummary);
 
-        await _plog.Info($"{AgentName} agent complete.", ingestRunId);
+        await _plog.Info($"{AgentName} agent complete: {finalReason}", ingestRunId);
     }
 
-    // Post 1: escalate the strategy as we iterate — faster first, more context on retry.
+    // Iteration 1: fast pass, no RAG.
+    // Iteration 2: add RAG context.
+    // Iteration 3+: RAG plus a more detailed prompt.
     private static ClassificationStrategy ChooseStrategy(int iteration) => iteration switch
     {
         1 => ClassificationStrategy.Default,
@@ -99,17 +102,30 @@ public sealed class ClassifierAgent : IAgent
         _ => ClassificationStrategy.WithRagAndDetailedPrompt
     };
 
-    // Post 1: simple confidence check. "Satisfied" if at least 80% of classifications
-    // came back with substantive reasoning (more than 30 chars). Retry otherwise.
-    private static string CheckWork(
-        Dictionary<string, (string Classification, string Reasoning)> classifications)
+    // The agent's self-check on its own output. Deterministic and cheap.
+    // (Independent second opinion is the Reviewer's job.)
+    private static (bool Confident, string Reason) CheckWork(
+        Dictionary<string, (string Classification, string Reasoning)> result,
+        int expectedCount)
     {
-        if (classifications.Count == 0)
-            return "retry_empty";
+        // Did we cover everything?
+        if (result.Count < expectedCount)
+            return (false, $"missed {expectedCount - result.Count} of {expectedCount}");
 
-        int withReasoning = classifications.Count(c => (c.Value.Reasoning?.Length ?? 0) > 30);
-        double ratio = (double)withReasoning / classifications.Count;
+        // Are the Plavalova codes well-formed? (CONFIRMED|XXXX, XXXX = 4 chars)
+        var badFormat = result.Count(r =>
+        {
+            var parts = r.Value.Classification.Split('|');
+            return parts.Length != 2 || parts[1].Length != 4;
+        });
+        if (badFormat > 0)
+            return (false, $"{badFormat} malformed Plavalova codes");
 
-        return ratio >= 0.8 ? "satisfied" : "retry_thin_reasoning";
+        // Is the reasoning substantive?
+        var thinReasoning = result.Count(r => (r.Value.Reasoning ?? "").Length < 20);
+        if (thinReasoning > 0)
+            return (false, $"{thinReasoning} classifications with thin reasoning");
+
+        return (true, "all checks passed");
     }
 }

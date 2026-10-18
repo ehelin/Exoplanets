@@ -1,0 +1,45 @@
+=== STEP 3: Move appsettings files ===
+
+SOURCE FILES FOUND IN C:\Users\QuesoCheese\Downloads\:
+- appsettings.Development.json
+- appsettings.Development (1).json
+- appsettings.Production.json
+- appsettings.Production (1).json
+
+COPIED TO TARGET LOCATIONS:
+1. C:\Users\QuesoCheese\Downloads\appsettings.Development.json
+   → C:\EricDocuments\Personal\Exoplanets\Exoplanet.Console\appsettings.Development.json
+   → C:\EricDocuments\Personal\Exoplanets\Exoplanet.Functions\appsettings.Development.json
+
+2. C:\Users\QuesoCheese\Downloads\appsettings.Production.json
+   → C:\EricDocuments\Personal\Exoplanets\Exoplanet.Console\appsettings.Production.json
+   → C:\EricDocuments\Personal\Exoplanets\Exoplanet.Functions\appsettings.Production.json
+
+FILES CREATED (4 total):
+- C:\EricDocuments\Personal\Exoplanets\Exoplanet.Console\appsettings.Development.json
+- C:\EricDocuments\Personal\Exoplanets\Exoplanet.Functions\appsettings.Development.json
+- C:\EricDocuments\Personal\Exoplanets\Exoplanet.Console\appsettings.Production.json
+- C:\EricDocuments\Personal\Exoplanets\Exoplanet.Functions\appsettings.Production.json
+
+PLACEHOLDER VALUES PRESERVED (not filled in):
+- Host=YOUR_HOST
+- Username=YOUR_USER
+- Password=YOUR_PASSWORD
+- ApiKey=YOUR_OPENAI_KEY
+
+BUILD OUTPUT:
+Determining projects to restore...
+All projects are up-to-date for restore.
+Shared -> C:\EricDocuments\Personal\Exoplanets\Shared\bin\Debug\net8.0\Shared.dll
+Exoplanet.DAL -> C:\EricDocuments\Personal\Exoplanets\Exoplanet.DAL\bin\Debug\net8.0\Exoplanet.DAL.dll
+Exoplanet.Services -> C:\EricDocuments\Personal\Exoplanets\Exoplanet.Services\bin\Debug\net8.0\Exoplanet.Services.dll
+ExoPlanet.RagLoad -> C:\EricDocuments\Personal\Exoplanets\ExoPlanet.RagLoad\bin\Debug\net8.0\ExoPlanet.RagLoad.dll
+Tests -> C:\EricDocuments\Personal\Exoplanets\Tests\bin\Debug\net8.0\Tests.dll
+Exoplanet.Functions -> C:\EricDocuments\Personal\Exoplanets\Exoplanet.Functions\bin\Debug\net8.0\Exoplanet.Functions.dll
+Exoplanet.Console -> C:\EricDocuments\Personal\Exoplanets\Exoplanet.Console\bin\Debug\net8.0\Exoplanet.Console.dll
+
+Build succeeded.
+0 Warning(s)
+0 Error(s)
+
+Time Elapsed: 00:00:11.59
